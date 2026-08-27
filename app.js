@@ -27,7 +27,8 @@ const K = {
     payroll: 'ap_payroll',
     customerPayments: 'ap_customerpayments',
     supplierPayments: 'ap_supplierpayments',
-    otherAssets: 'ap_otherassets'
+    otherAssets: 'ap_otherassets',
+    partners: 'ap_partners'
 };
 
 /* Wrap the browser confirm() so the "confirm before destructive action" setting can be honored. */
@@ -99,6 +100,7 @@ let _autoBackupTimer = null;
 function autoBackupTick() {
     clearTimeout(_autoBackupTimer);
     _autoBackupTimer = setTimeout(() => { doAutoBackup().catch(() => {}); }, 900);
+    cloudSyncTick();
 }
 async function doAutoBackup() {
     const data = {};
@@ -420,7 +422,7 @@ function openMoreMenu() {
     const items = [
         ['home', 'خانه'], ['dashboard', 'داشبورد'], ['invoices', 'فاکتور فروش'], ['products', 'کالا و انبار'],
         ['customers', 'مشتریان'], ['purchases', 'خرید از تأمین‌کننده'], ['treasury', 'صندوق و بانک'],
-        ['checks', 'چک‌ها'], ['expenses', 'هزینه‌ها'], ['payroll', 'حقوق پرسنل'], ['settlements', 'بدهکاران و طلبکاران'],
+        ['checks', 'چک‌ها'], ['expenses', 'هزینه‌ها'], ['payroll', 'حقوق پرسنل'], ['settlements', 'بدهکاران و طلبکاران'], ['partners', 'شرکا و سهم سود'],
         ['stocktake', 'انبارگردانی'], ['reports', 'گزارش‌ها'], ['backup', 'پشتیبان‌گیری'],
         ['help', 'راهنما'], ['about', 'درباره برنامه'], ['settings', 'تنظیمات']
     ];
@@ -1741,6 +1743,17 @@ function renderInvoices() {
         <span class="chip ${invoiceFilter === 'partial' ? 'active' : ''}" onclick="invoiceFilter='partial'; rerenderIfActive('invoices')">جزئی</span>
         <span class="chip ${invoiceFilter === 'unpaid' ? 'active' : ''}" onclick="invoiceFilter='unpaid'; rerenderIfActive('invoices')">پرداخت‌نشده</span>
     </div>
+    <div class="input-group" style="margin-bottom:10px;">
+        <label>نحوه نمایش / دسته‌بندی</label>
+        <select id="inv_groupMode" onchange="invoiceGroupMode=this.value; rerenderIfActive('invoices')">
+            <option value="none" ${invoiceGroupMode === 'none' ? 'selected' : ''}>فهرست ساده (جدیدترین اول)</option>
+            <option value="year" ${invoiceGroupMode === 'year' ? 'selected' : ''}>بر اساس سال</option>
+            <option value="month" ${invoiceGroupMode === 'month' ? 'selected' : ''}>بر اساس ماه (تقویم شمسی)</option>
+            <option value="customer" ${invoiceGroupMode === 'customer' ? 'selected' : ''}>بر اساس مشتری</option>
+            <option value="year_customer" ${invoiceGroupMode === 'year_customer' ? 'selected' : ''}>بر اساس سال، سپس مشتری</option>
+            <option value="customer_year" ${invoiceGroupMode === 'customer_year' ? 'selected' : ''}>بر اساس مشتری، سپس سال</option>
+        </select>
+    </div>
     <div class="search-bar">
         <input type="text" placeholder="جستجوی شماره فاکتور یا نام مشتری..." value="${esc(invoiceSearchTerm)}" oninput="invoiceSearchTerm=this.value; rerenderIfActive('invoices')">
         <button class="fab-add" onclick="openInvoiceEditor()" title="فاکتور جدید">
@@ -1749,9 +1762,74 @@ function renderInvoices() {
     </div>`;
 
     if (!list.length) return header + controls + `<div class="empty-state">فاکتوری یافت نشد.</div>`;
+    if (invoiceGroupMode !== 'none') return header + controls + invoiceGroupedHtml(list, invoiceGroupMode);
     return header + controls + `<div id="invoiceListWrap"></div><div style="display:none" id="invoiceFlatData">${esc(JSON.stringify(list.map(i => i.id)))}</div>`;
 }
 VIEW_RENDERERS.invoices = renderInvoices;
+window.invoiceGroupMode = 'none';
+let invoiceOpenGroups = new Set();
+function toggleInvoiceGroup(key) {
+    if (invoiceOpenGroups.has(key)) invoiceOpenGroups.delete(key); else invoiceOpenGroups.add(key);
+    rerenderIfActive('invoices');
+}
+window.toggleInvoiceGroup = toggleInvoiceGroup;
+function invoiceGroupLabelParts(inv) {
+    const j = isoToJalaliParts(inv.date);
+    return { year: String(j.jy).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]), month: FA_MONTHS[j.jm - 1], customer: inv.customerNameSnapshot || 'مشتری نقدی' };
+}
+function invoiceGroupedHtml(list, mode) {
+    // build a 1 or 2-level grouping tree based on the selected mode
+    const level1 = {}; // key -> { label, items:[] }
+    list.forEach(inv => {
+        const parts = invoiceGroupLabelParts(inv);
+        let key1, label1;
+        if (mode === 'year') { key1 = parts.year; label1 = 'سال ' + parts.year; }
+        else if (mode === 'month') { key1 = parts.year + '-' + parts.month; label1 = parts.month + ' ' + parts.year; }
+        else if (mode === 'customer' || mode === 'customer_year') { key1 = parts.customer; label1 = parts.customer; }
+        else { key1 = parts.year; label1 = 'سال ' + parts.year; } // year_customer
+        if (!level1[key1]) level1[key1] = { label: label1, items: [] };
+        level1[key1].items.push(inv);
+    });
+    const level1Keys = Object.keys(level1).sort((a, b) => b.localeCompare(a, 'fa'));
+    return level1Keys.map(k1 => {
+        const g1 = level1[k1];
+        const open1 = invoiceOpenGroups.has('L1:' + k1);
+        const g1Total = g1.items.reduce((s, i) => s + num(i.total), 0);
+        let bodyHtml;
+        if (mode === 'year_customer' || mode === 'customer_year') {
+            const level2 = {};
+            g1.items.forEach(inv => {
+                const parts = invoiceGroupLabelParts(inv);
+                const key2 = mode === 'year_customer' ? parts.customer : parts.year;
+                const label2 = mode === 'year_customer' ? parts.customer : ('سال ' + parts.year);
+                if (!level2[key2]) level2[key2] = { label: label2, items: [] };
+                level2[key2].items.push(inv);
+            });
+            const level2Keys = Object.keys(level2).sort((a, b) => a.localeCompare(b, 'fa'));
+            bodyHtml = level2Keys.map(k2 => {
+                const g2 = level2[k2];
+                const open2 = invoiceOpenGroups.has('L2:' + k1 + ':' + k2);
+                const g2Total = g2.items.reduce((s, i) => s + num(i.total), 0);
+                return `<div class="accordion-item" style="margin-inline-start:14px;">
+                    <div class="list-item" style="cursor:pointer;" onclick="toggleInvoiceGroup('L2:${esc(k1).replace(/'/g, "\\'")}:${esc(k2).replace(/'/g, "\\'")}')">
+                        <div class="list-item-row"><div class="list-item-title">${esc(g2.label)}</div>
+                        <div style="display:flex; align-items:center; gap:8px;"><div class="badge badge-cyan">${g2.items.length.toLocaleString(localeForDigits())}</div><span style="transform:rotate(${open2 ? '180deg' : '0deg'}); display:inline-block;">▾</span></div></div>
+                    </div>
+                    ${open2 ? `<div class="accordion-body">${g2.items.map(invoiceItemHtml).join('')}</div>` : ''}
+                </div>`;
+            }).join('');
+        } else {
+            bodyHtml = g1.items.map(invoiceItemHtml).join('');
+        }
+        return `<div class="accordion-item">
+            <div class="list-item" style="cursor:pointer;" onclick="toggleInvoiceGroup('L1:${esc(k1).replace(/'/g, "\\'")}')">
+                <div class="list-item-row"><div class="list-item-title">📅 ${esc(g1.label)}</div>
+                <div style="display:flex; align-items:center; gap:8px;"><span class="txt-caption">${moneyPlain(g1Total)}</span><div class="badge badge-cyan">${g1.items.length.toLocaleString(localeForDigits())}</div><span style="transform:rotate(${open1 ? '180deg' : '0deg'}); display:inline-block;">▾</span></div></div>
+            </div>
+            ${open1 ? `<div class="accordion-body">${bodyHtml}</div>` : ''}
+        </div>`;
+    }).join('');
+}
 
 function renderInvoiceFlatList() {
     const wrap = document.getElementById('invoiceListWrap');
@@ -2757,6 +2835,10 @@ function openListPrintOptions(kind) {
                 <option value="amountDesc">بیشترین خرید تا کمترین</option>
                 <option value="amountAsc">کمترین خرید تا بیشترین</option>
             </select>
+        </div>
+        <div class="settings-row" style="padding-inline:0;">
+            <div class="settings-row-label">نمایش ریز اقلام هر فاکتور</div>
+            <label class="switch"><input type="checkbox" id="lp_detail"><span class="switch-slider"></span></label>
         </div>`;
     } else if (kind === 'purchases') {
         const suppliers = Array.from(new Set(dbRead(K.purchases).map(p => p.supplier))).sort((a, b) => a.localeCompare(b, 'fa'));
@@ -2776,7 +2858,11 @@ function openListPrintOptions(kind) {
             <div class="settings-row-label">مقایسه قیمت کالاهای مشابه بین تأمین‌کنندگان</div>
             <label class="switch"><input type="checkbox" id="lp_compare"><span class="switch-slider"></span></label>
         </div>
-        <p class="txt-caption">با فعال کردن این گزینه، برای هر کالا نشان داده می‌شود کدام تأمین‌کننده ارزان‌تر فروخته است.</p>`;
+        <p class="txt-caption">با فعال کردن این گزینه، برای هر کالا نشان داده می‌شود کدام تأمین‌کننده ارزان‌تر فروخته است.</p>
+        <div class="settings-row" style="padding-inline:0;">
+            <div class="settings-row-label">نمایش ریز اقلام هر فاکتور خرید</div>
+            <label class="switch"><input type="checkbox" id="lp_detail"><span class="switch-slider"></span></label>
+        </div>`;
     } else {
         printListGeneric(kind);
         return;
@@ -2842,7 +2928,14 @@ function printListGenericFinal(kind) {
         const total = list.reduce((s, i) => s + num(i.total), 0);
         title = 'لیست فاکتورهای فروش';
         headCols = ['شماره', 'تاریخ', 'مشتری', 'مبلغ کل', 'وضعیت'];
-        rows = list.map(i => `<tr><td>${i.number}</td><td>${fmtDate(i.date)}</td><td class="text-cell">${esc(i.customerNameSnapshot || 'نقدی')}</td><td>${moneyPlain(i.total)}</td><td>${i.status === 'paid' ? 'پرداخت‌شده' : i.status === 'partial' ? 'جزئی' : 'پرداخت‌نشده'}</td></tr>`).join('');
+        if ((document.getElementById('lp_detail') || {}).checked) {
+            rows = list.map(i => `<tr><td>${i.number}</td><td>${fmtDate(i.date)}</td><td class="text-cell">${esc(i.customerNameSnapshot || 'نقدی')}</td><td>${moneyPlain(i.total)}</td><td>${i.status === 'paid' ? 'پرداخت‌شده' : i.status === 'partial' ? 'جزئی' : 'پرداخت‌نشده'}</td></tr>
+                <tr><td colspan="5" style="padding:0;"><table class="bill-table" style="margin:4px 0 10px;"><thead><tr><th>کالا</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th></tr></thead><tbody>
+                    ${i.items.map(it => `<tr><td class="text-cell">${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(num(it.qty) * num(it.price))}</td></tr>`).join('')}
+                </tbody></table></td></tr>`).join('');
+        } else {
+            rows = list.map(i => `<tr><td>${i.number}</td><td>${fmtDate(i.date)}</td><td class="text-cell">${esc(i.customerNameSnapshot || 'نقدی')}</td><td>${moneyPlain(i.total)}</td><td>${i.status === 'paid' ? 'پرداخت‌شده' : i.status === 'partial' ? 'جزئی' : 'پرداخت‌نشده'}</td></tr>`).join('');
+        }
         extraHtml = `<div class="totals-row grand" style="margin-top:8px;"><span>جمع کل (${list.length.toLocaleString(localeForDigits())} فاکتور)</span><span>${moneyPlain(total)}</span></div>`;
     } else if (kind === 'purchases') {
         let list = dbRead(K.purchases).slice();
@@ -2853,7 +2946,14 @@ function printListGenericFinal(kind) {
         else list.sort((a, b) => a.supplier.localeCompare(b.supplier, 'fa'));
         title = 'لیست خریدها';
         headCols = ['شماره', 'تاریخ', 'تأمین‌کننده', 'مبلغ کل', 'مانده بدهی'];
-        rows = list.map(p => `<tr><td>${p.number}</td><td>${fmtDate(p.date)}</td><td class="text-cell">${esc(p.supplier)}</td><td>${moneyPlain(p.total)}</td><td>${moneyPlain(Math.max(0, p.total - p.paidAmount))}</td></tr>`).join('');
+        if ((document.getElementById('lp_detail') || {}).checked) {
+            rows = list.map(p => `<tr><td>${p.number}</td><td>${fmtDate(p.date)}</td><td class="text-cell">${esc(p.supplier)}</td><td>${moneyPlain(p.total)}</td><td>${moneyPlain(Math.max(0, p.total - p.paidAmount))}</td></tr>
+                <tr><td colspan="5" style="padding:0;"><table class="bill-table" style="margin:4px 0 10px;"><thead><tr><th>کالا</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th></tr></thead><tbody>
+                    ${p.items.map(it => `<tr><td class="text-cell">${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(num(it.qty) * num(it.price))}</td></tr>`).join('')}
+                </tbody></table></td></tr>`).join('');
+        } else {
+            rows = list.map(p => `<tr><td>${p.number}</td><td>${fmtDate(p.date)}</td><td class="text-cell">${esc(p.supplier)}</td><td>${moneyPlain(p.total)}</td><td>${moneyPlain(Math.max(0, p.total - p.paidAmount))}</td></tr>`).join('');
+        }
         if ((document.getElementById('lp_compare') || {}).checked) {
             const byItem = {};
             dbRead(K.purchases).forEach(p => p.items.forEach(it => {
@@ -3204,6 +3304,108 @@ function treasuryLedger() {
     return [...invoices, ...purchases, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
+/* ---------------------------------------------------------------------------
+   Cloud sync — Google sign-in (Firebase Authentication) + Firestore.
+   One document per user (backups/{uid}) holds the entire app-state JSON,
+   the same shape used by the local backup export/import above.
+   ------------------------------------------------------------------------- */
+const firebaseConfig = {
+    apiKey: "AIzaSyAumvXdT_RUB8QipBkyFPW8JNQHiGG_ScM",
+    authDomain: "hesabdari-plus-3e851.firebaseapp.com",
+    projectId: "hesabdari-plus-3e851",
+    storageBucket: "hesabdari-plus-3e851.firebasestorage.app",
+    messagingSenderId: "628322433832",
+    appId: "1:628322433832:web:0cc23e30381d72f91c6e1d",
+    measurementId: "G-8SX1KVXR5R"
+};
+let fbAuth = null, fbDb = null, fbUser = null, _cloudSyncTimer = null;
+function initFirebase() {
+    try {
+        if (typeof firebase === 'undefined') return; // CDN blocked/offline — app still fully works locally
+        firebase.initializeApp(firebaseConfig);
+        fbAuth = firebase.auth();
+        fbDb = firebase.firestore();
+        fbAuth.onAuthStateChanged(onCloudAuthChange);
+    } catch (e) { /* ignore — cloud sync is optional, local storage always works */ }
+}
+function onCloudAuthChange(user) {
+    const wasSignedOut = !fbUser;
+    fbUser = user;
+    if (currentView === 'settings' || currentView === 'backup') rerenderIfActive(currentView);
+    if (user && wasSignedOut) offerCloudSyncChoice();
+}
+function signInWithGoogle() {
+    if (!fbAuth) { showToast('اتصال به گوگل برقرار نشد؛ اتصال اینترنت را بررسی کنید', 'error'); return; }
+    const provider = new firebase.auth.GoogleAuthProvider();
+    fbAuth.signInWithPopup(provider).catch((e) => showToast('ورود ناموفق بود: ' + (e.message || ''), 'error'));
+}
+window.signInWithGoogle = signInWithGoogle;
+function signOutCloud() {
+    if (fbAuth) fbAuth.signOut();
+    showToast('از حساب گوگل خارج شدید (اطلاعات همین دستگاه دست‌نخورده باقی ماند)', 'success');
+}
+window.signOutCloud = signOutCloud;
+function collectFullExportData() {
+    const data = {};
+    Object.entries(K).forEach(([name, key]) => { data[name] = JSON.parse(localStorage.getItem(key) || 'null'); });
+    data.exportedAt = todayISO();
+    data.app = 'حسابداری پلاس';
+    return data;
+}
+function applyImportedData(data) {
+    Object.entries(K).forEach(([name, key]) => { if (data[name] !== undefined) localStorage.setItem(key, JSON.stringify(data[name])); });
+}
+function cloudDocRef() { return fbDb.collection('backups').doc(fbUser.uid); }
+function pushToCloud() {
+    if (!fbUser || !fbDb) return Promise.resolve();
+    const data = collectFullExportData();
+    return cloudDocRef().set({ data: JSON.stringify(data), updatedAt: todayISO(), email: fbUser.email })
+        .then(() => { localStorage.setItem('ap_last_cloud_sync', todayISO()); })
+        .catch(() => {});
+}
+function offerCloudSyncChoice() {
+    cloudDocRef().get().then((snap) => {
+        if (!snap.exists) { pushToCloud(); showToast('اطلاعات این دستگاه برای اولین‌بار در حساب گوگل شما ذخیره شد', 'success'); return; }
+        const cloudUpdated = (snap.data() || {}).updatedAt;
+        const html = `
+            <p class="txt-body" style="color:var(--text-secondary); line-height:1.9; margin-bottom:14px;">
+                یک نسخه از اطلاعات شما قبلاً روی حساب گوگل ذخیره شده (آخرین به‌روزرسانی: ${cloudUpdated ? fmtDateTime(cloudUpdated) : '-'}). کدام نسخه معتبر است؟
+            </p>
+            <div class="action-grid">
+                <button class="btn-action" onclick="pullFromCloudConfirmed()">⬇ دریافت از سرور<br><span class="txt-caption">اطلاعات این دستگاه با نسخه ابری جایگزین می‌شود</span></button>
+                <button class="calc-btn" onclick="pushToCloudConfirmed()">⬆ آپلود این دستگاه<br><span class="txt-caption">نسخه ابری با اطلاعات این دستگاه جایگزین می‌شود</span></button>
+            </div>`;
+        openModal('همگام‌سازی با حساب گوگل', html);
+    }).catch(() => {});
+}
+function pullFromCloudConfirmed() {
+    cloudDocRef().get().then((snap) => {
+        if (!snap.exists) return;
+        try {
+            const data = JSON.parse((snap.data() || {}).data || '{}');
+            applyImportedData(data);
+            closeModal();
+            showToast('اطلاعات از سرور دریافت شد', 'success');
+            setTimeout(() => location.reload(), 900);
+        } catch (e) { showToast('خطا در دریافت اطلاعات ابری', 'error'); }
+    });
+}
+window.pullFromCloudConfirmed = pullFromCloudConfirmed;
+function pushToCloudConfirmed() {
+    pushToCloud().then(() => { closeModal(); showToast('این دستگاه با موفقیت روی سرور آپلود شد', 'success'); });
+}
+window.pushToCloudConfirmed = pushToCloudConfirmed;
+function cloudSyncTick() {
+    if (!fbUser) return;
+    clearTimeout(_cloudSyncTimer);
+    _cloudSyncTimer = setTimeout(() => { pushToCloud(); }, 1500);
+}
+function manualCloudSync() {
+    if (!fbUser) { showToast('ابتدا با گوگل وارد شوید', 'error'); return; }
+    pushToCloud().then(() => showToast('همگام‌سازی انجام شد', 'success'));
+}
+window.manualCloudSync = manualCloudSync;
+
 const CASHBOX_TYPES = [['cash', 'صندوق نقدی مغازه'], ['pos', 'دستگاه کارت‌خوان'], ['bank', 'حساب بانکی'], ['check', 'چک']];
 const CURRENCY_LIST = [['تومان', 'تومان (واحد اصلی صندوق)'], ['دلار', 'دلار آمریکا (USD)'], ['یورو', 'یورو (EUR)'], ['پوند', 'پوند انگلیس (GBP)'], ['درهم', 'درهم امارات (AED)'], ['دینار عراق', 'دینار عراق (IQD)'], ['لیر ترکیه', 'لیر ترکیه (TRY)'], ['یوان', 'یوان چین (CNY)'], ['روبل', 'روبل روسیه (RUB)'], ['__custom__', 'ارز دلخواه…']];
 function renderTreasury() {
@@ -3258,7 +3460,7 @@ function renderTreasury() {
 }
 
 function assetLabel(a) {
-    if (a.type === 'currency') return `${num(a.amount).toLocaleString(localeForDigits())} ${esc(a.currency)}`;
+    if (a.type === 'currency') return `${num(a.amount).toLocaleString(localeForDigits())} ${esc(a.currency)}${a.rate ? ` (نرخ ثبت: ${moneyPlain(a.rate)})` : ''}`;
     if (a.type === 'gold') {
         if (a.goldType === 'coin') return `سکه ${esc(a.coinEra)} ${esc(a.coinSize)} — ${num(a.qty).toLocaleString(localeForDigits())} عدد (هر عدد ${moneyPlain(a.unitPrice)})`;
         if (a.goldType === 'melted') return `طلای آب‌شده — ${num(a.grams).toLocaleString(localeForDigits())} گرم (هر گرم ${moneyPlain(a.pricePerGram)})`;
@@ -3292,12 +3494,20 @@ function capOnTypeChange() {
         box.innerHTML = `
             <div class="input-group"><label>مبلغ *</label><input type="text" inputmode="numeric" id="cap_amount" placeholder="0"></div>
             <div class="input-group"><label>واحد پول</label>
-                <select id="cap_currency" onchange="document.getElementById('cap_customCurWrap').style.display=(this.value==='__custom__')?'block':'none';">
+                <select id="cap_currency" onchange="capOnCurrencyChange()">
                     ${CURRENCY_LIST.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}
                 </select>
             </div>
             <div class="input-group" id="cap_customCurWrap" style="display:none;"><label>نام ارز دلخواه</label><input type="text" id="cap_customCur" placeholder="مثلاً: درهم قطر"></div>
-            <p class="txt-caption">اگر واحد، تومان باشد مستقیماً به موجودی صندوق نقدی اضافه می‌شود؛ در غیر این صورت به‌عنوان دارایی ارزی جدا نگه‌داری می‌شود.</p>
+            <div id="cap_rateBox" style="display:none;">
+                <div class="input-group"><label>نرخ برابری امروز (هر واحد چند تومان است؟)</label><input type="text" inputmode="numeric" id="cap_rate" placeholder="مثلاً 60000" oninput="capUpdateConvertedPreview()"></div>
+                <div class="settings-row" style="padding-inline:0;">
+                    <div class="settings-row-label">تبدیل به تومان و افزودن مستقیم به صندوق نقدی</div>
+                    <label class="switch"><input type="checkbox" id="cap_convertToCash" onchange="capUpdateConvertedPreview()"><span class="switch-slider"></span></label>
+                </div>
+                <p class="txt-caption" id="cap_convertedPreview"></p>
+            </div>
+            <p class="txt-caption" id="cap_defaultNote">اگر واحد، تومان باشد مستقیماً به موجودی صندوق نقدی اضافه می‌شود؛ در غیر این صورت به‌عنوان دارایی ارزی جدا نگه‌داری می‌شود (مگر این‌که گزینه تبدیل خودکار بالا را فعال کنید).</p>
         `;
     } else {
         box.innerHTML = `
@@ -3315,6 +3525,24 @@ function capOnTypeChange() {
     }
 }
 window.capOnTypeChange = capOnTypeChange;
+function capOnCurrencyChange() {
+    const val = document.getElementById('cap_currency').value;
+    document.getElementById('cap_customCurWrap').style.display = (val === '__custom__') ? 'block' : 'none';
+    document.getElementById('cap_rateBox').style.display = (val === 'تومان') ? 'none' : 'block';
+    document.getElementById('cap_defaultNote').style.display = (val === 'تومان') ? 'block' : 'none';
+    capUpdateConvertedPreview();
+}
+window.capOnCurrencyChange = capOnCurrencyChange;
+function capUpdateConvertedPreview() {
+    const preview = document.getElementById('cap_convertedPreview');
+    if (!preview) return;
+    const amount = num(document.getElementById('cap_amount').value);
+    const rate = num(document.getElementById('cap_rate').value);
+    const converted = amount * rate;
+    const convertOn = document.getElementById('cap_convertToCash').checked;
+    preview.textContent = converted ? `معادل تومانی: ${moneyPlain(converted)}${convertOn ? ' — این مبلغ مستقیماً به صندوق نقدی اضافه می‌شود' : ' — به‌عنوان دارایی ارزی جدا نگه‌داری می‌شود'}` : '';
+}
+window.capUpdateConvertedPreview = capUpdateConvertedPreview;
 function capOnGoldTypeChange() {
     const type = document.getElementById('cap_goldType').value;
     const box = document.getElementById('cap_goldBox');
@@ -3362,9 +3590,18 @@ function saveCashCapitalEntry() {
             tx.push({ id: uid('tx'), date, type: 'in', amount, desc: 'سرمایه/واریز نقدی' + (note ? ': ' + note : '') });
             dbWrite(K.cashtx, tx);
         } else {
-            const assets = dbRead(K.otherAssets);
-            assets.push({ id: uid('ast'), type: 'currency', currency, amount, date, note });
-            dbWrite(K.otherAssets, assets);
+            const rate = num((document.getElementById('cap_rate') || {}).value);
+            const convertToCash = !!(document.getElementById('cap_convertToCash') || {}).checked;
+            if (convertToCash && rate) {
+                const converted = Math.round(amount * rate);
+                const tx = dbRead(K.cashtx);
+                tx.push({ id: uid('tx'), date, type: 'in', amount: converted, desc: `تبدیل ${num(amount).toLocaleString(localeForDigits())} ${esc(currency)} به نرخ ${num(rate).toLocaleString(localeForDigits())} تومان و افزودن به صندوق` + (note ? ': ' + note : '') });
+                dbWrite(K.cashtx, tx);
+            } else {
+                const assets = dbRead(K.otherAssets);
+                assets.push({ id: uid('ast'), type: 'currency', currency, amount, rate: rate || null, date, note });
+                dbWrite(K.otherAssets, assets);
+            }
         }
     } else {
         const goldType = document.getElementById('cap_goldType').value;
@@ -3472,8 +3709,8 @@ function renderChecks() {
     ${all.length ? all.map(c => `
         <div class="list-item" style="cursor:pointer;" onclick="openCheckEditor('${c.id}')">
             <div class="list-item-row">
-                <div><div class="list-item-title">${esc(c.who)}</div><div class="list-item-sub">سررسید: ${fmtDate(c.dueDate)} · ${c.direction === 'receive' ? 'دریافتی' : 'پرداختی'}${c.bank ? ' · بانک ' + esc(c.bank) : ''}${c.number ? ' · چک ' + esc(c.number) : ''}</div></div>
-                <div style="text-align:left;"><div class="list-item-title">${moneyPlain(c.amount)}</div>
+                <div><div class="list-item-title">${esc(c.who)}</div><div class="list-item-sub">سررسید: ${fmtDate(c.dueDate)} · ${c.direction === 'receive' ? 'دریافتی' : 'پرداختی'}${c.bank ? ' · بانک ' + esc(c.bank) : ''}${c.number ? ' · چک ' + esc(c.number) : ''}${c.endorsedTo ? ' · واگذار به ' + esc(c.endorsedTo) : ''}</div></div>
+                <div style="text-align:left;"><div class="list-item-title">${moneyPlain(c.amount)}${num(c.interestPercent) ? ` <span class="txt-caption">(+سود ${moneyPlain(c.interestAmount)})</span>` : ''}</div>
                     ${c.status === 'pending' ? '<span class="badge badge-amber">در انتظار وصول</span>' : c.status === 'cashed' ? '<span class="badge badge-emerald">وصول‌شده</span>' : '<span class="badge badge-rose">برگشتی</span>'}
                 </div>
             </div>
@@ -3496,6 +3733,25 @@ function openCheckEditor(id) {
         </div>
         <div class="input-group"><label>شماره صیادی (۱۶ رقمی)</label><input type="text" inputmode="numeric" id="ck_sayad" value="${esc(c ? c.sayadNo || '' : '')}" placeholder="اختیاری"></div>
         ${jalaliDateField('ck_due', c ? c.dueDate : '', 'تاریخ سررسید', true)}
+        <div class="settings-row" style="padding-inline:0;">
+            <div class="settings-row-label">این چک بابت نسیه است و سود ماهانه دارد</div>
+            <label class="switch"><input type="checkbox" id="ck_hasInterest" ${c && num(c.interestPercent) ? 'checked' : ''} onchange="ckToggleInterestBox()"><span class="switch-slider"></span></label>
+        </div>
+        <div class="pm-detail-box" id="ck_interestBox" style="display:${c && num(c.interestPercent) ? 'block' : 'none'};">
+            <div class="input-group"><label>سود نسیه (٪ در ماه)</label><input type="text" inputmode="numeric" id="ck_interestPercent" value="${esc(num(c ? c.interestPercent : 0) || 0)}" oninput="ckRecalcInterest()"></div>
+            <div class="input-group"><label>گرد کردن مدت</label>
+                <select id="ck_roundMode" onchange="ckRecalcInterest()">
+                    <option value="none" ${(!c || !c.roundMode || c.roundMode === 'none') ? 'selected' : ''}>بدون گرد کردن (دقیق به روز)</option>
+                    <option value="up" ${c && c.roundMode === 'up' ? 'selected' : ''}>گرد به بالا</option>
+                    <option value="down" ${c && c.roundMode === 'down' ? 'selected' : ''}>گرد به پایین</option>
+                </select>
+            </div>
+            <div class="settings-row" style="padding-inline:0;">
+                <div class="settings-row-label">سود مرکب</div>
+                <label class="switch"><input type="checkbox" id="ck_compound" ${c && c.compound ? 'checked' : ''} onchange="ckRecalcInterest()"><span class="switch-slider"></span></label>
+            </div>
+            <p class="txt-caption" id="ck_interestInfo"></p>
+        </div>
         <div class="input-group"><label>وضعیت</label>
             <select id="ck_status">
                 <option value="pending" ${!c || c.status === 'pending' ? 'selected' : ''}>در انتظار وصول</option>
@@ -3508,14 +3764,39 @@ function openCheckEditor(id) {
         ${c ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deleteCheck('${id}')">حذف چک</button>` : ''}
     `;
     openModal(c ? 'ویرایش چک' : 'ثبت چک جدید', html);
+    setTimeout(ckRecalcInterest, 20);
 }
 window.openCheckEditor = openCheckEditor;
+function ckToggleInterestBox() {
+    document.getElementById('ck_interestBox').style.display = document.getElementById('ck_hasInterest').checked ? 'block' : 'none';
+    ckRecalcInterest();
+}
+window.ckToggleInterestBox = ckToggleInterestBox;
+function ckRecalcInterest() {
+    const info = document.getElementById('ck_interestInfo');
+    if (!info || !document.getElementById('ck_hasInterest').checked) return;
+    const pd = {
+        dueDate: getJalaliInputISO('ck_due'),
+        monthlyPercent: num(document.getElementById('ck_interestPercent').value),
+        roundMode: document.getElementById('ck_roundMode').value,
+        compound: document.getElementById('ck_compound').checked
+    };
+    const base = num(document.getElementById('ck_amount').value);
+    const interest = creditInterestAmount(base, pd);
+    info.textContent = creditInterestBreakdownText(pd) + (interest ? ` مبلغ سود: ${moneyPlain(interest)} (جمع با اصل مبلغ: ${moneyPlain(base + interest)})` : '');
+}
+window.ckRecalcInterest = ckRecalcInterest;
 
 function saveCheck(id) {
     const who = document.getElementById('ck_who').value.trim();
     const amount = num(document.getElementById('ck_amount').value);
     const dueDate = getJalaliInputISO('ck_due');
     if (!who || !amount || !dueDate) { showToast('طرف حساب، مبلغ و تاریخ سررسید الزامی است', 'error'); return; }
+    const hasInterest = document.getElementById('ck_hasInterest').checked;
+    const interestPercent = hasInterest ? num(document.getElementById('ck_interestPercent').value) : 0;
+    const roundMode = hasInterest ? document.getElementById('ck_roundMode').value : 'none';
+    const compound = hasInterest ? document.getElementById('ck_compound').checked : false;
+    const interestAmount = hasInterest ? creditInterestAmount(amount, { dueDate, monthlyPercent: interestPercent, roundMode, compound }) : 0;
     const list = dbRead(K.checks);
     const data = {
         who, direction: document.getElementById('ck_dir').value, amount,
@@ -3524,6 +3805,7 @@ function saveCheck(id) {
         accountNo: document.getElementById('ck_accno').value.trim(),
         sayadNo: document.getElementById('ck_sayad').value.trim(),
         note: document.getElementById('ck_note').value.trim(),
+        interestPercent, roundMode, compound, interestAmount,
         dueDate, status: document.getElementById('ck_status').value
     };
     if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
@@ -3544,8 +3826,12 @@ function deleteCheck(id) {
 window.deleteCheck = deleteCheck;
 
 function printChecksList() {
+    const whos = Array.from(new Set(dbRead(K.checks).map(c => c.who).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'fa'));
     const html = `
         <p class="txt-caption" style="margin-bottom:10px;">وضعیت‌ها و جهت چک‌هایی که می‌خواهید چاپ شوند را انتخاب کنید.</p>
+        <div class="input-group"><label>طرف حساب خاص (اختیاری)</label>
+            <select id="pcl_who"><option value="">همه</option>${whos.map(w => `<option value="${esc(w)}">${esc(w)}</option>`).join('')}</select>
+        </div>
         <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">در انتظار وصول</div><label class="switch"><input type="checkbox" id="pcl_pending" checked><span class="switch-slider"></span></label></div>
         <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">وصول‌شده</div><label class="switch"><input type="checkbox" id="pcl_cashed" checked><span class="switch-slider"></span></label></div>
         <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">برگشتی</div><label class="switch"><input type="checkbox" id="pcl_bounced" checked><span class="switch-slider"></span></label></div>
@@ -3567,7 +3853,8 @@ function printChecksListFinal() {
     if (document.getElementById('pcl_bounced').checked) statuses.push('bounced');
     const dir = document.getElementById('pcl_dir').value;
     const sort = document.getElementById('pcl_sort').value;
-    let all = dbRead(K.checks).filter(c => statuses.includes(c.status) && (dir === 'all' || c.direction === dir));
+    const who = document.getElementById('pcl_who').value;
+    let all = dbRead(K.checks).filter(c => statuses.includes(c.status) && (dir === 'all' || c.direction === dir) && (!who || c.who === who));
     if (sort === 'due') all.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
     else if (sort === 'amountDesc') all.sort((a, b) => num(b.amount) - num(a.amount));
     else all.sort((a, b) => num(a.amount) - num(b.amount));
@@ -3609,11 +3896,56 @@ window.saveCashTx = saveCashTx;
 /* ---------------------------------------------------------------------------
    Reports
    ------------------------------------------------------------------------- */
+function calcInflationProfit() {
+    const s = getSettings();
+    const todayRate = num(document.getElementById('fx_todayRate').value);
+    if (!todayRate) { showToast('نرخ امروز ارز را وارد کنید', 'error'); return; }
+    const ledger = treasuryLedger();
+    const cashBalance = ledger.reduce((sum, t) => sum + (t.type === 'in' ? num(t.amount) : -num(t.amount)), 0);
+    const assets = dbRead(K.otherAssets);
+    const goldValue = assets.filter(a => a.type === 'gold').reduce((sum, a) => {
+        if (a.goldType === 'coin') return sum + num(a.qty) * num(a.unitPrice);
+        if (a.goldType === 'melted' || a.goldType === 'silver') return sum + num(a.grams) * num(a.pricePerGram);
+        return sum + num(a.customValue);
+    }, 0);
+    // other foreign-currency assets that match the base currency are valued at today's rate; others are listed but not converted (no live rate available for them here)
+    const sameCurrencyAssetsToman = assets.filter(a => a.type === 'currency' && a.currency === s.capitalBaseCurrency).reduce((sum, a) => sum + num(a.amount) * todayRate, 0);
+    const otherCurrencyAssets = assets.filter(a => a.type === 'currency' && a.currency !== s.capitalBaseCurrency);
+
+    const totalNetWorthToman = cashBalance + goldValue + sameCurrencyAssetsToman;
+    const initialCapitalToman = num(s.capitalBaseAmount) * num(s.capitalBaseRate);
+    const profitLossToman = totalNetWorthToman - initialCapitalToman;
+
+    const netWorthInBaseCurrencyToday = totalNetWorthToman / todayRate;
+    const profitLossInBaseCurrency = netWorthInBaseCurrencyToday - num(s.capitalBaseAmount);
+
+    const tomanIsProfit = profitLossToman >= 0;
+    const currencyIsProfit = profitLossInBaseCurrency >= 0;
+    const conflict = tomanIsProfit !== currencyIsProfit;
+
+    document.getElementById('fx_result').innerHTML = `
+        <div class="report-detail-grid">
+            <div class="report-detail-card ${tomanIsProfit ? 'good' : 'bad'}">
+                <div class="rdc-label">سود/زیان به تومان</div>
+                <div class="rdc-val">${tomanIsProfit ? '+' : ''}${moneyPlain(profitLossToman)}</div>
+            </div>
+            <div class="report-detail-card ${currencyIsProfit ? 'good' : 'bad'}">
+                <div class="rdc-label">سود/زیان واقعی (به ${esc(s.capitalBaseCurrency)})</div>
+                <div class="rdc-val">${currencyIsProfit ? '+' : ''}${num(Math.round(profitLossInBaseCurrency)).toLocaleString(localeForDigits())} ${esc(s.capitalBaseCurrency)}</div>
+            </div>
+        </div>
+        ${conflict ? `<p class="txt-body" style="color:var(--accent-amber); margin-top:10px; line-height:1.9;">⚠️ توجه: با این‌که به تومان در ${tomanIsProfit ? 'سود' : 'زیان'} هستید، اما با احتساب تغییر نرخ ارز (تورم/افت ارزش پول ملی)، سرمایه شما به ${esc(s.capitalBaseCurrency)} در واقع در ${currencyIsProfit ? 'سود' : 'زیان'} است.</p>` : ''}
+        ${otherCurrencyAssets.length ? `<p class="txt-caption" style="margin-top:10px;">توجه: ${otherCurrencyAssets.length.toLocaleString(localeForDigits())} دارایی ارزی با واحد دیگر (غیر از ${esc(s.capitalBaseCurrency)}) در این محاسبه لحاظ نشده؛ چون نرخ روز آن‌ها وارد نشده است.</p>` : ''}
+    `;
+}
+window.calcInflationProfit = calcInflationProfit;
+
 function renderReports() {
     const invoices = dbRead(K.invoices);
     const purchases = dbRead(K.purchases);
     const expenses = dbRead(K.expenses);
     const products = dbRead(K.products);
+    const settings = getSettings();
     const invoiceCogs = (inv) => inv.items.reduce((s2, it) => { const p = products.find(x => x.id === it.productId); return s2 + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
 
     const totalSales = invoices.reduce((s, i) => s + num(i.total), 0);
@@ -3716,6 +4048,23 @@ function renderReports() {
         <div class="section-title">خلاصه خرید از تأمین‌کنندگان</div>
         <div class="totals-row"><span>جمع کل خرید</span><span>${moneyPlain(purchases.reduce((s, p) => s + num(p.total), 0))}</span></div>
         <div class="totals-row"><span>بدهی باقی‌مانده به تأمین‌کنندگان</span><span>${moneyPlain(purchases.reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0))}</span></div>
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">💱 سود و زیان ارزی (تعدیل‌شده با تورم)</div>
+        ${settings.capitalBaseCurrency && settings.capitalBaseAmount && settings.capitalBaseRate ? `
+        <p class="txt-caption" style="margin-bottom:10px;">سرمایه پایه شما: ${num(settings.capitalBaseAmount).toLocaleString(localeForDigits())} ${esc(settings.capitalBaseCurrency)} (به نرخ ${moneyPlain(settings.capitalBaseRate)} در روز سرمایه‌گذاری)</p>
+        <div class="input-group"><label>نرخ امروز این ارز (تومان)</label><input type="text" inputmode="numeric" id="fx_todayRate" placeholder="مثلاً 95000"></div>
+        <button class="btn-action" style="width:100%;" onclick="calcInflationProfit()">محاسبه سود/زیان واقعی</button>
+        <div id="fx_result" style="margin-top:12px;"></div>
+        ` : `<p class="txt-body" style="color:var(--text-secondary);">برای استفاده از این بخش، ابتدا از «تنظیمات ← سرمایه پایه» ارز، مبلغ و نرخ روز سرمایه‌گذاری را ثبت کنید.</p>
+        <button class="btn-action" style="width:100%;" onclick="switchView('settings')">رفتن به تنظیمات</button>`}
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">🤝 شرکا و سهم سود</div>
+        <p class="txt-caption" style="margin-bottom:10px;">اگر فروشگاه با چند نفر شریک اداره می‌شود، سهم هرکس را از منوی «شرکا» مدیریت کنید.</p>
+        <button class="btn-action" style="width:100%;" onclick="switchView('partners')">مدیریت شرکا و سهم سود</button>
     </div>
 
     <div class="action-grid">
@@ -3837,6 +4186,103 @@ function renderSettlements() {
     `;
 }
 VIEW_RENDERERS.settlements = renderSettlements;
+
+/* ---------------------------------------------------------------------------
+   Partners (شرکا) — multiple people co-own the store with different capital
+   contributions; each partner's profit share is proportional to their share
+   of total capital.
+   ------------------------------------------------------------------------- */
+function computeStoreNetProfit() {
+    const invoices = dbRead(K.invoices), expenses = dbRead(K.expenses), products = dbRead(K.products);
+    const invoiceCogs = (inv) => inv.items.reduce((s2, it) => { const p = products.find(x => x.id === it.productId); return s2 + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
+    const totalSales = invoices.reduce((s, i) => s + num(i.total), 0);
+    const totalCOGS = invoices.reduce((s, i) => s + invoiceCogs(i), 0);
+    const totalExpenses = expenses.reduce((s, e) => s + num(e.amount), 0);
+    const totalPayroll = dbRead(K.payroll).reduce((s, p) => s + num(p.amount), 0);
+    return totalSales - totalCOGS - totalExpenses - totalPayroll;
+}
+function renderPartners() {
+    const partners = dbRead(K.partners);
+    const totalCapital = partners.reduce((s, p) => s + num(p.capitalToman), 0);
+    const netProfit = computeStoreNetProfit();
+    return `
+    ${viewHeader('مالی', 'شرکا و سهم سود', `${partners.length.toLocaleString(localeForDigits())} شریک · جمع کل سرمایه: ${money(totalCapital)}`, `<button class="nav-btn" onclick="printPartnersList()" title="چاپ"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`)}
+    <div class="stat-grid" style="grid-template-columns:1fr;">
+        <div class="stat-card"><div class="stat-val" style="color:${netProfit >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${money(netProfit)}</div><div class="stat-label">سود خالص کل فروشگاه تا امروز (قابل تقسیم)</div></div>
+    </div>
+    <div class="search-bar">
+        <div></div>
+        <button class="fab-add" onclick="openPartnerEditor()" title="افزودن شریک">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+    </div>
+    ${partners.length ? partners.map(p => {
+        const pct = totalCapital ? (num(p.capitalToman) / totalCapital * 100) : 0;
+        const share = netProfit * (pct / 100);
+        return `
+        <div class="list-item">
+            <div class="list-item-row">
+                <div><div class="list-item-title">${esc(p.name)}</div><div class="list-item-sub">سرمایه: ${moneyPlain(p.capitalToman)} · سهم: ${pct.toFixed(1).replace(/[0-9.]/g, (c) => c === '.' ? '.' : '۰۱۲۳۴۵۶۷۸۹'[c])}٪</div></div>
+                <div style="text-align:left;"><div class="list-item-title" style="color:${share >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${moneyPlain(share)}</div><div class="txt-caption">سهم سود/زیان</div></div>
+            </div>
+            <div class="action-grid" style="margin-top:8px;">
+                <button class="btn-action" onclick="openPartnerEditor('${p.id}')">ویرایش</button>
+                <button class="btn-action" style="color:var(--accent-rose);" onclick="deletePartner('${p.id}')">حذف</button>
+            </div>
+        </div>`;
+    }).join('') : `<div class="empty-state">هنوز شریکی ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.partners = renderPartners;
+function openPartnerEditor(id) {
+    const p = id ? dbRead(K.partners).find(x => x.id === id) : null;
+    const html = `
+        <div class="input-group"><label>نام شریک *</label><input type="text" id="pt_name" value="${esc(p ? p.name : '')}"></div>
+        <div class="input-group"><label>مبلغ سرمایه (تومان) *</label><input type="text" inputmode="numeric" id="pt_capital" value="${p ? num(p.capitalToman) : ''}" placeholder="0"></div>
+        ${jalaliDateField('pt_date', p ? p.date : todayISO(), 'تاریخ ورود سرمایه')}
+        <div class="input-group"><label>یادداشت</label><textarea id="pt_note">${esc(p ? p.note || '' : '')}</textarea></div>
+        <button class="calc-btn" onclick="savePartner('${id || ''}')">${p ? 'ذخیره تغییرات' : 'ثبت شریک'}</button>
+        ${p ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deletePartner('${id}')">حذف شریک</button>` : ''}
+    `;
+    openModal(p ? 'ویرایش شریک' : 'شریک جدید', html);
+}
+window.openPartnerEditor = openPartnerEditor;
+function savePartner(id) {
+    const name = document.getElementById('pt_name').value.trim();
+    const capitalToman = num(document.getElementById('pt_capital').value);
+    if (!name || !capitalToman) { showToast('نام و مبلغ سرمایه را وارد کنید', 'error'); return; }
+    const list = dbRead(K.partners);
+    const data = { name, capitalToman, date: getJalaliInputISO('pt_date') || todayISO(), note: document.getElementById('pt_note').value.trim() };
+    if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
+    else list.push(Object.assign({ id: uid('ptn') }, data));
+    dbWrite(K.partners, list);
+    autoBackupTick();
+    closeModal(); showToast('اطلاعات شریک ذخیره شد', 'success'); switchView('partners');
+}
+window.savePartner = savePartner;
+function deletePartner(id) {
+    if (!confirmAction('حذف این شریک؟')) return;
+    dbWrite(K.partners, dbRead(K.partners).filter(x => x.id !== id));
+    autoBackupTick();
+    closeModal(); showToast('شریک حذف شد', 'success'); switchView('partners');
+}
+window.deletePartner = deletePartner;
+function printPartnersList() {
+    const partners = dbRead(K.partners);
+    const totalCapital = partners.reduce((s, p) => s + num(p.capitalToman), 0);
+    const netProfit = computeStoreNetProfit();
+    const rows = partners.map(p => {
+        const pct = totalCapital ? (num(p.capitalToman) / totalCapital * 100) : 0;
+        const share = netProfit * (pct / 100);
+        return `<tr><td class="text-cell">${esc(p.name)}</td><td>${moneyPlain(p.capitalToman)}</td><td>${pct.toFixed(1)}٪</td><td>${moneyPlain(share)}</td></tr>`;
+    }).join('');
+    const html = `${billTemplateOpenTag()}${billHeaderHtml('شرکا و سهم سود')}
+        <table class="bill-table"><thead><tr><th>شریک</th><th>سرمایه</th><th>درصد سهم</th><th>سهم سود/زیان</th></tr></thead><tbody>${rows || '<tr><td colspan="4">-</td></tr>'}</tbody></table>
+        <div class="totals-row grand" style="margin-top:8px;"><span>سود خالص کل قابل تقسیم</span><span>${moneyPlain(netProfit)}</span></div>
+    </div>${printFooterButton()}`;
+    openModal('پیش‌نمایش چاپ — شرکا', html);
+}
+window.printPartnersList = printPartnersList;
 
 function openSettleCustomer(customerId) {
     const c = dbRead(K.customers).find(x => x.id === customerId);
@@ -4081,6 +4527,39 @@ function renderSettings() {
     ${viewHeader('سیستم', 'تنظیمات', 'اطلاعات فروشگاه، ظاهر برنامه و مالیات')}
 
     <div class="section-box">
+        <div class="section-title">حساب گوگل و همگام‌سازی ابری</div>
+        ${fbUser ? `
+            <div class="bank-account-card">
+                <div><div class="bac-name">${esc(fbUser.displayName || fbUser.email)}</div><div class="bac-sub">${esc(fbUser.email)}${localStorage.getItem('ap_last_cloud_sync') ? ' · آخرین همگام‌سازی: ' + fmtDateTime(localStorage.getItem('ap_last_cloud_sync')) : ''}</div></div>
+                <button class="btn-action" onclick="signOutCloud()">خروج</button>
+            </div>
+            <button class="btn-action" style="width:100%; margin-top:8px;" onclick="manualCloudSync()">🔄 همگام‌سازی الان</button>
+        ` : `
+            <p class="txt-body" style="color:var(--text-secondary); margin-bottom:10px;">با ورود با حساب گوگل، اطلاعات شما علاوه بر این دستگاه، در سرور هم ذخیره می‌شود و می‌توانید از دستگاه دیگری هم به آن دسترسی داشته باشید.</p>
+            <button class="calc-btn" style="width:100%;" onclick="signInWithGoogle()">
+                <svg width="16" height="16" viewBox="0 0 24 24" style="vertical-align:-3px; margin-inline-end:6px;"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.28 1.48-1.13 2.73-2.4 3.58v2.98h3.88c2.27-2.09 3.54-5.17 3.54-8.8z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-2.98c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.31 14.33c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28V6.68H1.29A11.96 11.96 0 000 12.05c0 1.93.46 3.76 1.29 5.37l4.02-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.68l4.02 3.09c.94-2.83 3.58-4.93 6.69-4.93z"/></svg>
+                ورود با گوگل
+            </button>
+        `}
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">سرمایه پایه (برای محاسبه سود/زیان ارزی)</div>
+        <p class="txt-caption" style="margin-bottom:10px;">اگر سرمایه اولیه فروشگاه شما در واقع بر پایه یک ارز خارجی بوده (مثلاً دلار)، این‌جا ثبت کنید تا در گزارش «سود و زیان ارزی» بتوانیم با توجه به نرخ روز، سود/زیان واقعی را محاسبه کنیم.</p>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>ارز پایه سرمایه</label>
+                <select id="st_capCurrency">
+                    <option value="">— غیرفعال —</option>
+                    ${CURRENCY_LIST.filter(([v]) => v !== 'تومان' && v !== '__custom__').map(([v, l]) => `<option value="${esc(v)}" ${s.capitalBaseCurrency === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="input-group"><label>مبلغ سرمایه به این ارز</label><input type="text" inputmode="numeric" id="st_capAmount" value="${s.capitalBaseAmount ? num(s.capitalBaseAmount) : ''}"></div>
+        </div>
+        <div class="input-group"><label>نرخ تومان به این ارز، در روزی که این سرمایه وارد شد</label><input type="text" inputmode="numeric" id="st_capRate" value="${s.capitalBaseRate ? num(s.capitalBaseRate) : ''}" placeholder="مثلاً 60000"></div>
+        <button class="calc-btn" onclick="saveCapitalBaseSettings()">ذخیره سرمایه پایه</button>
+    </div>
+
+    <div class="section-box">
         <div class="section-title">اطلاعات فروشگاه</div>
         <div class="input-group"><label>نام فروشگاه</label><input type="text" id="st_storeName" value="${esc(s.storeName || '')}"></div>
         <div class="mini-form-grid">
@@ -4218,6 +4697,17 @@ function themeSwatch(id) {
     };
     return map[id] || map.default;
 }
+
+function saveCapitalBaseSettings() {
+    saveSettings({
+        capitalBaseCurrency: document.getElementById('st_capCurrency').value,
+        capitalBaseAmount: num(document.getElementById('st_capAmount').value),
+        capitalBaseRate: num(document.getElementById('st_capRate').value)
+    });
+    showToast('سرمایه پایه ذخیره شد', 'success');
+    switchView('settings');
+}
+window.saveCapitalBaseSettings = saveCapitalBaseSettings;
 
 function saveStoreSettings() {
     saveSettings({
@@ -4561,4 +5051,5 @@ window.onload = function () {
     }
     refreshBackupLogCache();
     initFullscreenButton();
+    initFirebase();
 };
