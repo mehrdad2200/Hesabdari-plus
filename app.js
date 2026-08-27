@@ -26,7 +26,8 @@ const K = {
     employees: 'ap_employees',
     payroll: 'ap_payroll',
     customerPayments: 'ap_customerpayments',
-    supplierPayments: 'ap_supplierpayments'
+    supplierPayments: 'ap_supplierpayments',
+    otherAssets: 'ap_otherassets'
 };
 
 /* Wrap the browser confirm() so the "confirm before destructive action" setting can be honored. */
@@ -247,6 +248,25 @@ function isoToJalaliStr(iso) {
     const pad = (n) => String(n).padStart(2, '0');
     return `${j.jy}/${pad(j.jm)}/${pad(j.jd)}`.replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d]);
 }
+/* Groups a list of records by Jalali year-month (newest month first) and renders a labeled
+   section per month — used for lists that grow large over time (invoices, transactions, ...). */
+function monthGroupedListHtml(items, dateGetter, itemRenderer, minCountToGroup) {
+    minCountToGroup = minCountToGroup || 12;
+    if (items.length < minCountToGroup) return items.map(itemRenderer).join('');
+    const groups = {};
+    items.forEach(it => {
+        const iso = dateGetter(it);
+        const j = isoToJalaliParts(iso || todayISO());
+        const key = `${j.jy}-${String(j.jm).padStart(2, '0')}`;
+        if (!groups[key]) groups[key] = { label: `${FA_MONTHS[j.jm - 1]} ${String(j.jy).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d])}`, items: [] };
+        groups[key].items.push(it);
+    });
+    const keys = Object.keys(groups).sort().reverse();
+    return keys.map(k => `
+        <div class="section-title" style="margin-top:14px; display:flex; align-items:center; gap:8px;">📅 ${esc(groups[k].label)} <span class="badge badge-cyan">${groups[k].items.length.toLocaleString(localeForDigits())}</span></div>
+        ${groups[k].items.map(itemRenderer).join('')}
+    `).join('');
+}
 function jalaliDaysInMonth(jy, jm) {
     if (jm <= 6) return 31;
     if (jm <= 11) return 30;
@@ -311,8 +331,13 @@ function renderJalaliPickerModal() {
         <div class="jcal-grid">${cells}</div>
         <button type="button" class="btn-action" style="width:100%; margin-top:8px;" onclick="pickJalaliDate(${todayJ.jy},${todayJ.jm},${todayJ.jd})">امروز</button>
     </div>`;
-    openModal('انتخاب تاریخ', html);
+    document.getElementById('jalaliBody').innerHTML = html;
+    document.getElementById('jalaliOverlay').classList.add('active');
 }
+function closeJalaliPicker() { document.getElementById('jalaliOverlay').classList.remove('active'); }
+window.closeJalaliPicker = closeJalaliPicker;
+function closeJalaliOverlayOnBg(e) { if (e.target.id === 'jalaliOverlay') closeJalaliPicker(); }
+window.closeJalaliOverlayOnBg = closeJalaliOverlayOnBg;
 function jalaliPickerNav(dir) {
     let { jy, jm } = _jalaliPickerState;
     jm += dir;
@@ -330,7 +355,7 @@ function pickJalaliDate(jy, jm, jd) {
         el.value = isoToJalaliStr(iso);
         el.dispatchEvent(new Event('change'));
     }
-    closeModal();
+    closeJalaliPicker();
 }
 window.pickJalaliDate = pickJalaliDate;
 function isSameDay(iso1, iso2) {
@@ -1128,7 +1153,24 @@ function finishOnboarding() {
     refreshBrandChip();
     switchView('home');
     showToast('فروشگاه شما آماده شد!', 'success');
+    setTimeout(showWelcomeTourPopup, 400);
 }
+
+function showWelcomeTourPopup() {
+    document.getElementById('welcomeTourBody').innerHTML = `
+        <p class="txt-body" style="color:var(--text-secondary); margin-bottom:14px; line-height:1.9;">
+            فروشگاه شما آماده است! اگر برای اولین‌بار از این برنامه استفاده می‌کنید، پیشنهاد می‌کنیم چند دقیقه وقت بگذارید و با «تور آموزشی نمایشی» با تمام بخش‌های برنامه (فروش، انبار، صندوق و بانک، چک‌ها، حقوق پرسنل، گزارش‌ها و ...) آشنا شوید. هر زمان هم که خواستید می‌توانید از منوی «راهنما» دوباره آن را اجرا کنید.
+        </p>
+        <div class="action-grid">
+            <button class="btn-action" onclick="dismissWelcomeTour()">فعلاً نه، می‌خواهم خودم شروع کنم</button>
+            <button class="calc-btn" onclick="dismissWelcomeTour(); startAppTour();">🎯 شروع تور آموزشی</button>
+        </div>
+    `;
+    document.getElementById('welcomeTourOverlay').classList.add('active');
+}
+window.showWelcomeTourPopup = showWelcomeTourPopup;
+function dismissWelcomeTour() { document.getElementById('welcomeTourOverlay').classList.remove('active'); }
+window.dismissWelcomeTour = dismissWelcomeTour;
 
 /* ---------------------------------------------------------------------------
    Dashboard
@@ -1316,7 +1358,7 @@ function renderCustomers() {
     const all = dbRead(K.customers);
     const term = customerSearchTerm.trim();
     const header = viewHeader('اشخاص', 'مشتریان', `${all.length.toLocaleString(localeForDigits())} مشتری ثبت‌شده`,
-        `<button class="nav-btn" onclick="printListGeneric('customers')" title="چاپ لیست مشتریان"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
+        `<button class="nav-btn" onclick="openListPrintOptions('customers')" title="چاپ لیست مشتریان"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
     const searchBar = `<div class="search-bar">
         <input type="text" placeholder="جستجوی نام، شماره یا شهر..." value="${esc(customerSearchTerm)}" oninput="customerSearchTerm=this.value; rerenderIfActive('customers')">
         <button class="fab-add" onclick="openCustomerEditor()" title="افزودن مشتری">
@@ -1521,7 +1563,7 @@ function renderProducts() {
     const term = productSearchTerm.trim();
     const totalValue = all.reduce((s, p) => s + num(p.qty) * num(p.buyPrice), 0);
     const header = viewHeader('انبار', 'کالا و انبار', `${all.length.toLocaleString(localeForDigits())} کالا · ارزش انبار: ${money(totalValue)}`,
-        `<button class="nav-btn" onclick="printListGeneric('products')" title="چاپ لیست انبار"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
+        `<button class="nav-btn" onclick="openListPrintOptions('products')" title="چاپ لیست انبار"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
 
     const searchBar = `
     <div class="chip-row">
@@ -1690,7 +1732,7 @@ function renderInvoices() {
     if (invoiceFilter !== 'all') list = list.filter(i => i.status === invoiceFilter);
 
     const header = viewHeader('فروش', 'فاکتورهای فروش', `${all.length.toLocaleString(localeForDigits())} فاکتور ثبت‌شده`,
-        `<button class="nav-btn" onclick="printListGeneric('invoices')" title="چاپ لیست فاکتورها"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
+        `<button class="nav-btn" onclick="openListPrintOptions('invoices')" title="چاپ لیست فاکتورها"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
 
     const controls = `
     <div class="chip-row">
@@ -1795,7 +1837,7 @@ function renderInvoiceEditorPage() {
                 ${PAYMENT_METHODS.map(([v, l]) => `<option value="${v}" ${(d.paymentMethod || 'cash') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}
             </select>
         </div>
-        <div id="if_paymentDetailsBox">${paymentDetailsHtml('if', d.paymentMethod || 'cash', d.paymentDetails)}</div>
+        <div id="if_paymentDetailsBox">${paymentDetailsHtml('if', d.paymentMethod || 'cash', d.paymentDetails, false)}</div>
     </div>
 
     <div class="section-box">
@@ -1841,8 +1883,9 @@ function invoiceTotalsHtml(subtotal, discount, tax, total, paid, interest) {
 }
 
 /* -------- Payment-method detail sub-forms (shared by sale invoice & purchase forms) -------- */
-function paymentDetailsHtml(prefix, method, pd) {
+function paymentDetailsHtml(prefix, method, pd, allowExisting) {
     pd = pd || {};
+    allowExisting = allowExisting !== false;
     const banks = dbRead(K.bankAccounts);
     if (method === 'cash') {
         return `<div class="pm-detail-box"><span class="badge badge-emerald">💵 از صندوق نقدی مغازه پرداخت/دریافت می‌شود</span></div>`;
@@ -1865,23 +1908,52 @@ function paymentDetailsHtml(prefix, method, pd) {
         </div>`;
     }
     if (method === 'check') {
+        const availableChecks = dbRead(K.checks).filter(c => c.direction === 'receive' && c.status === 'pending' && !c.endorsedTo);
         return `<div class="pm-detail-box">
-            <div class="mini-form-grid">
-                <div class="input-group"><label>شماره چک</label><input type="text" id="${prefix}_ckNumber" value="${esc(pd.checkNumber || '')}"></div>
-                <div class="input-group"><label>بانک</label><input type="text" id="${prefix}_ckBank" value="${esc(pd.bank || '')}"></div>
+            ${allowExisting ? `<div class="input-group"><label>منبع چک</label>
+                <select id="${prefix}_ckSource" onchange="ckSourceChange('${prefix}')">
+                    <option value="new" ${pd.source !== 'existing' ? 'selected' : ''}>ثبت چک جدید</option>
+                    <option value="existing" ${pd.source === 'existing' ? 'selected' : ''}>استفاده از چک دریافتی موجود (واگذاری/خرج کردن چک)</option>
+                </select>
+            </div>` : ''}
+            <div id="${prefix}_ckNewBox" style="display:${(allowExisting && pd.source === 'existing') ? 'none' : 'block'};">
+                <div class="mini-form-grid">
+                    <div class="input-group"><label>شماره چک</label><input type="text" id="${prefix}_ckNumber" value="${esc(pd.checkNumber || '')}"></div>
+                    <div class="input-group"><label>بانک</label><input type="text" id="${prefix}_ckBank" value="${esc(pd.bank || '')}"></div>
+                </div>
+                <div class="mini-form-grid">
+                    <div class="input-group"><label>شماره حساب</label><input type="text" id="${prefix}_ckAccNo" value="${esc(pd.accountNo || '')}"></div>
+                    <div class="input-group"><label>شماره صیادی</label><input type="text" inputmode="numeric" id="${prefix}_ckSayad" value="${esc(pd.sayadNo || '')}"></div>
+                </div>
+                ${jalaliDateField(prefix + '_ckDue', pd.dueDate || '', 'تاریخ سررسید چک')}
             </div>
-            <div class="mini-form-grid">
-                <div class="input-group"><label>شماره حساب</label><input type="text" id="${prefix}_ckAccNo" value="${esc(pd.accountNo || '')}"></div>
-                <div class="input-group"><label>شماره صیادی</label><input type="text" inputmode="numeric" id="${prefix}_ckSayad" value="${esc(pd.sayadNo || '')}"></div>
+            <div id="${prefix}_ckExistingBox" style="display:${pd.source === 'existing' ? 'block' : 'none'};">
+                <div class="input-group"><label>انتخاب چک</label>
+                    <select id="${prefix}_ckExistingId">
+                        <option value="">— انتخاب کنید —</option>
+                        ${availableChecks.map(c => `<option value="${c.id}" ${pd.existingCheckId === c.id ? 'selected' : ''}>${esc(c.who)} — ${moneyPlain(c.amount)} — سررسید ${fmtDate(c.dueDate)}${c.number ? ' — #' + esc(c.number) : ''}</option>`).join('')}
+                    </select>
+                    ${!availableChecks.length ? `<p class="txt-caption">چک دریافتیِ در دسترسی برای واگذاری موجود نیست.</p>` : ''}
+                </div>
             </div>
-            ${jalaliDateField(prefix + '_ckDue', pd.dueDate || '', 'تاریخ سررسید چک')}
         </div>`;
     }
     if (method === 'credit') {
         return `<div class="pm-detail-box">
             ${jalaliDateField(prefix + '_crDue', pd.dueDate || '', 'موعد تسویه نسیه')}
             <div class="input-group"><label>سود نسیه (٪ در ماه)</label><input type="text" inputmode="numeric" id="${prefix}_crPercent" value="${esc(num(pd.monthlyPercent) || 0)}" oninput="${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}" placeholder="مثلاً 4"></div>
-            <p class="txt-caption">با تعیین موعد و درصد، مبلغ سود به‌صورت خودکار به جمع فاکتور اضافه می‌شود.</p>
+            <div class="input-group"><label>گرد کردن مدت</label>
+                <select id="${prefix}_crRound" onchange="${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}">
+                    <option value="none" ${(!pd.roundMode || pd.roundMode === 'none') ? 'selected' : ''}>بدون گرد کردن (دقیق به روز)</option>
+                    <option value="up" ${pd.roundMode === 'up' ? 'selected' : ''}>گرد به بالا (به ماه بعد)</option>
+                    <option value="down" ${pd.roundMode === 'down' ? 'selected' : ''}>گرد به پایین (به ماه قبل)</option>
+                </select>
+            </div>
+            <div class="settings-row" style="padding-inline:0;">
+                <div class="settings-row-label">سود مرکب</div>
+                <label class="switch"><input type="checkbox" id="${prefix}_crCompound" ${pd.compound ? 'checked' : ''} onchange="${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}"><span class="switch-slider"></span></label>
+            </div>
+            <p class="txt-caption" id="${prefix}_crInfo">${esc(creditInterestBreakdownText(pd))}</p>
         </div>`;
     }
     if (method === 'openaccount') {
@@ -1891,12 +1963,31 @@ function paymentDetailsHtml(prefix, method, pd) {
     }
     return '';
 }
+function ckSourceChange(prefix) {
+    const source = document.getElementById(prefix + '_ckSource').value;
+    document.getElementById(prefix + '_ckNewBox').style.display = source === 'existing' ? 'none' : 'block';
+    document.getElementById(prefix + '_ckExistingBox').style.display = source === 'existing' ? 'block' : 'none';
+}
+window.ckSourceChange = ckSourceChange;
 function paymentDetailsCollect(prefix, method) {
     if (method === 'card') {
         return { cardType: (document.getElementById(prefix + '_cardType') || {}).value || 'pos', bankAccountId: (document.getElementById(prefix + '_bankId') || {}).value || '' };
     }
     if (method === 'check') {
+        const sourceEl = document.getElementById(prefix + '_ckSource');
+        const source = sourceEl ? sourceEl.value : 'new';
+        if (source === 'existing') {
+            const existingId = (document.getElementById(prefix + '_ckExistingId') || {}).value || '';
+            const existing = existingId ? dbRead(K.checks).find(c => c.id === existingId) : null;
+            return {
+                source: 'existing', existingCheckId: existingId,
+                checkNumber: existing ? existing.number : '', bank: existing ? existing.bank : '',
+                accountNo: existing ? existing.accountNo : '', sayadNo: existing ? existing.sayadNo : '',
+                dueDate: existing ? existing.dueDate : ''
+            };
+        }
         return {
+            source: 'new',
             checkNumber: ((document.getElementById(prefix + '_ckNumber') || {}).value || '').trim(),
             bank: ((document.getElementById(prefix + '_ckBank') || {}).value || '').trim(),
             accountNo: ((document.getElementById(prefix + '_ckAccNo') || {}).value || '').trim(),
@@ -1905,7 +1996,7 @@ function paymentDetailsCollect(prefix, method) {
         };
     }
     if (method === 'credit') {
-        return { dueDate: getJalaliInputISO(prefix + '_crDue'), monthlyPercent: num((document.getElementById(prefix + '_crPercent') || {}).value) };
+        return { dueDate: getJalaliInputISO(prefix + '_crDue'), monthlyPercent: num((document.getElementById(prefix + '_crPercent') || {}).value), roundMode: ((document.getElementById(prefix + '_crRound') || {}).value) || 'none', compound: !!(document.getElementById(prefix + '_crCompound') || {}).checked };
     }
     if (method === 'openaccount') {
         return { note: ((document.getElementById(prefix + '_oaNote') || {}).value || '').trim() };
@@ -1915,8 +2006,25 @@ function paymentDetailsCollect(prefix, method) {
 function creditInterestAmount(baseAmount, pd) {
     if (!pd || !pd.dueDate || !num(pd.monthlyPercent)) return 0;
     const days = Math.max(0, Math.round((new Date(pd.dueDate) - new Date()) / 86400000));
-    const months = Math.max(1, Math.ceil(days / 30));
-    return Math.round(baseAmount * (num(pd.monthlyPercent) / 100) * months);
+    if (days <= 0) return 0;
+    let months = days / 30; // exact, fractional — e.g. 40 days = 1.333 months
+    if (pd.roundMode === 'up') months = Math.ceil(months);
+    else if (pd.roundMode === 'down') months = Math.floor(months);
+    const rate = num(pd.monthlyPercent) / 100;
+    let interest;
+    if (pd.compound) {
+        interest = baseAmount * (Math.pow(1 + rate, months) - 1);
+    } else {
+        interest = baseAmount * rate * months;
+    }
+    return Math.round(interest);
+}
+function creditInterestBreakdownText(pd) {
+    if (!pd || !pd.dueDate || !num(pd.monthlyPercent)) return '';
+    const days = Math.max(0, Math.round((new Date(pd.dueDate) - new Date()) / 86400000));
+    if (days <= 0) return 'تاریخ سررسید گذشته یا امروز است — سودی محاسبه نمی‌شود.';
+    const months = days / 30;
+    return `${days.toLocaleString(localeForDigits())} روز (معادل ${months.toFixed(2).replace(/[0-9.]/g, (c) => c === '.' ? '.' : '۰۱۲۳۴۵۶۷۸۹'[c])} ماه) تا سررسید — سود ${pd.compound ? 'به‌صورت مرکب' : 'به‌صورت ساده'} محاسبه می‌شود${pd.roundMode === 'up' ? ' (گرد شده به بالا)' : pd.roundMode === 'down' ? ' (گرد شده به پایین)' : ''}.`;
 }
 
 /* -------- Category-folder + colleague-consignment item picker (shared by sale & purchase) -------- */
@@ -2091,6 +2199,8 @@ function diRecalc(skipFullRender) {
     const total = afterDiscount + tax + interest;
     const box = document.getElementById('invoiceTotalsBox');
     if (box) box.innerHTML = invoiceTotalsHtml(subtotal, discount, tax, total, paid, interest);
+    const infoEl = document.getElementById('if_crInfo');
+    if (infoEl && method === 'credit') infoEl.textContent = creditInterestBreakdownText(pd);
     if (!skipFullRender) return;
     document.querySelectorAll('#itemRowsWrap .item-row').forEach((row, i) => {
         const it = draftInvoice.items[i]; if (!it) return;
@@ -2102,7 +2212,7 @@ window.diRecalc = diRecalc;
 function diOnPaymentMethodChange() {
     const method = document.getElementById('if_paymethod').value;
     const box = document.getElementById('if_paymentDetailsBox');
-    if (box) box.innerHTML = paymentDetailsHtml('if', method, method === draftInvoice.paymentMethod ? draftInvoice.paymentDetails : {});
+    if (box) box.innerHTML = paymentDetailsHtml('if', method, method === draftInvoice.paymentMethod ? draftInvoice.paymentDetails : {}, false);
     diRecalc();
 }
 window.diOnPaymentMethodChange = diOnPaymentMethodChange;
@@ -2324,30 +2434,60 @@ window.printInvoice = printInvoice;
 let draftPurchase = null;
 let purchaseSearchTerm = '';
 
-function renderPurchases() {
-    const all = dbRead(K.purchases).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
-    const term = purchaseSearchTerm.trim();
-    const list = term ? all.filter(p => (p.supplier + String(p.number)).includes(term)) : all;
-    const totalPayable = all.reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0);
-
+let purchaseOpenFolders = new Set();
+function togglePurchaseFolder(name) {
+    if (purchaseOpenFolders.has(name)) purchaseOpenFolders.delete(name); else purchaseOpenFolders.add(name);
+    rerenderIfActive('purchases');
+}
+window.togglePurchaseFolder = togglePurchaseFolder;
+function purchaseItemHtml(p) {
+    const remain = Math.max(0, num(p.total) - num(p.paidAmount));
     return `
-    ${viewHeader('خرید', 'خرید از تأمین‌کننده', `${all.length.toLocaleString(localeForDigits())} فاکتور خرید · بدهی به تأمین‌کنندگان: ${money(totalPayable)}`, `<button class="nav-btn" onclick="printListGeneric('purchases')" title="چاپ لیست خرید"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`)}
-    <div class="search-bar">
-        <input type="text" placeholder="جستجوی تأمین‌کننده یا شماره..." value="${esc(purchaseSearchTerm)}" oninput="purchaseSearchTerm=this.value; rerenderIfActive('purchases')">
-        <button class="fab-add" onclick="openPurchaseEditor()" title="خرید جدید">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-    </div>
-    ${list.length ? list.map(p => {
-        const remain = Math.max(0, num(p.total) - num(p.paidAmount));
-        return `
         <div class="list-item" style="cursor:pointer;" onclick="openPurchaseEditor('${p.id}')">
             <div class="list-item-row">
                 <div><div class="list-item-title">${esc(p.supplier)} <span class="txt-caption">#${p.number}</span></div><div class="list-item-sub">${fmtDate(p.date)} · ${p.items.length.toLocaleString(localeForDigits())} قلم</div></div>
                 <div style="text-align:left;"><div class="list-item-title">${money(p.total)}</div>${remain > 0 ? `<span class="badge badge-rose">بدهی ${moneyPlain(remain)}</span>` : `<span class="badge badge-emerald">تسویه</span>`}</div>
             </div>
         </div>`;
-    }).join('') : `<div class="empty-state">خریدی ثبت نشده است.</div>`}`;
+}
+function renderPurchases() {
+    const all = dbRead(K.purchases).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    const term = purchaseSearchTerm.trim();
+    const list = term ? all.filter(p => (p.supplier + String(p.number)).includes(term)) : all;
+    const totalPayable = all.reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0);
+
+    const header = viewHeader('خرید', 'خرید از تأمین‌کننده', `${all.length.toLocaleString(localeForDigits())} فاکتور خرید · بدهی به تأمین‌کنندگان: ${money(totalPayable)}`, `<button class="nav-btn" onclick="openListPrintOptions('purchases')" title="چاپ لیست خرید"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
+    const searchBar = `
+    <div class="search-bar">
+        <input type="text" placeholder="جستجوی تأمین‌کننده یا شماره..." value="${esc(purchaseSearchTerm)}" oninput="purchaseSearchTerm=this.value; rerenderIfActive('purchases')">
+        <button class="fab-add" onclick="openPurchaseEditor()" title="خرید جدید">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+    </div>`;
+
+    if (term) {
+        return header + searchBar + (list.length ? list.map(purchaseItemHtml).join('') : `<div class="empty-state">خریدی یافت نشد.</div>`);
+    }
+    // Accordion grouped by supplier — matches the category-folder pattern used for کالا و انبار
+    const bySupplier = {};
+    all.forEach(p => { (bySupplier[p.supplier || 'نامشخص'] = bySupplier[p.supplier || 'نامشخص'] || []).push(p); });
+    const names = Object.keys(bySupplier).sort((a, b) => a.localeCompare(b, 'fa'));
+    return header + searchBar + (names.length ? names.map(name => {
+        const open = purchaseOpenFolders.has(name);
+        const items = bySupplier[name];
+        const debt = items.reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0);
+        return `<div class="accordion-item">
+            <div class="list-item" style="cursor:pointer;" onclick="togglePurchaseFolder('${esc(name).replace(/'/g, "\\'")}')">
+                <div class="list-item-row"><div class="list-item-title">📁 ${esc(name)}</div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    ${debt > 0 ? `<span class="badge badge-rose">بدهی ${moneyPlain(debt)}</span>` : ''}
+                    <div class="badge badge-cyan">${items.length.toLocaleString(localeForDigits())}</div>
+                    <span style="display:inline-block; transform:rotate(${open ? '180deg' : '0deg'});">▾</span>
+                </div></div>
+            </div>
+            ${open ? `<div class="accordion-body">${monthGroupedListHtml(items, p => p.date, purchaseItemHtml)}</div>` : ''}
+        </div>`;
+    }).join('') : `<div class="empty-state">خریدی ثبت نشده است.</div>`);
 }
 VIEW_RENDERERS.purchases = renderPurchases;
 
@@ -2429,7 +2569,10 @@ function dpCurrentInterest() {
     const rawTotal = draftPurchase.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
     const methodEl = document.getElementById('pf_paymethod');
     const method = methodEl ? methodEl.value : (draftPurchase.paymentMethod || 'cash');
-    return method === 'credit' ? creditInterestAmount(rawTotal, paymentDetailsCollect('pf', 'credit')) : 0;
+    const pd = method === 'credit' ? paymentDetailsCollect('pf', 'credit') : null;
+    const infoEl = document.getElementById('pf_crInfo');
+    if (infoEl && method === 'credit') infoEl.textContent = creditInterestBreakdownText(pd);
+    return method === 'credit' ? creditInterestAmount(rawTotal, pd) : 0;
 }
 function dpUpdate(idx, field, value) {
     draftPurchase.items[idx][field] = (field === 'qty' || field === 'price') ? num(value) : value;
@@ -2520,17 +2663,23 @@ function savePurchase() {
     }
     dbWrite(K.purchases, list);
 
-    // Payment method "چک" on a purchase → automatically log the issued check in چک‌ها
-    if (paymentMethod === 'check' && paymentDetails.dueDate) {
+    // Payment method "چک" on a purchase → either endorse/spend an existing received check, or log a new issued check
+    if (paymentMethod === 'check') {
         const checks = dbRead(K.checks);
-        const already = checks.find(c => c.linkedPurchaseId === savedId);
-        const chkData = {
-            who: supplier, direction: 'pay', amount: total,
-            number: paymentDetails.checkNumber, bank: paymentDetails.bank, accountNo: paymentDetails.accountNo,
-            sayadNo: paymentDetails.sayadNo, dueDate: paymentDetails.dueDate, status: 'pending', linkedPurchaseId: savedId
-        };
-        if (already) Object.assign(already, chkData); else checks.push(Object.assign({ id: uid('chk') }, chkData));
-        dbWrite(K.checks, checks);
+        if (paymentDetails.source === 'existing' && paymentDetails.existingCheckId) {
+            const idx = checks.findIndex(c => c.id === paymentDetails.existingCheckId);
+            if (idx > -1) { checks[idx].endorsedTo = supplier; checks[idx].endorsedDate = todayISO(); checks[idx].note = (checks[idx].note ? checks[idx].note + ' — ' : '') + `واگذار شده بابت خرید #${draftPurchase.number || ''} به ${supplier}`; }
+            dbWrite(K.checks, checks);
+        } else if (paymentDetails.dueDate) {
+            const already = checks.find(c => c.linkedPurchaseId === savedId);
+            const chkData = {
+                who: supplier, direction: 'pay', amount: total,
+                number: paymentDetails.checkNumber, bank: paymentDetails.bank, accountNo: paymentDetails.accountNo,
+                sayadNo: paymentDetails.sayadNo, dueDate: paymentDetails.dueDate, status: 'pending', linkedPurchaseId: savedId
+            };
+            if (already) Object.assign(already, chkData); else checks.push(Object.assign({ id: uid('chk') }, chkData));
+            dbWrite(K.checks, checks);
+        }
     }
 
     autoBackupTick();
@@ -2552,6 +2701,183 @@ function deletePurchase(id) {
 window.deletePurchase = deletePurchase;
 
 /* -------- Generic "print this list" for products / customers / invoices / purchases / expenses -------- */
+function openListPrintOptions(kind) {
+    let body = '';
+    if (kind === 'products') {
+        const cats = Array.from(new Set(dbRead(K.products).map(p => p.category || 'بدون دسته'))).sort((a, b) => a.localeCompare(b, 'fa'));
+        const products = dbRead(K.products).slice().sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+        body = `
+        <div class="input-group"><label>کالای خاص (اختیاری)</label>
+            <select id="lp_item"><option value="">همه کالاها</option>${products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>دسته‌بندی</label>
+            <select id="lp_cat"><option value="">همه دسته‌ها</option>${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>مرتب‌سازی</label>
+            <select id="lp_sort">
+                <option value="name">بر اساس نام (الفبا)</option>
+                <option value="priceDesc">گران‌ترین تا ارزان‌ترین</option>
+                <option value="priceAsc">ارزان‌ترین تا گران‌ترین</option>
+                <option value="bestSeller">پرفروش‌ترین</option>
+                <option value="lowStock">کمترین موجودی در انبار</option>
+                <option value="highStock">بیشترین موجودی در انبار</option>
+            </select>
+        </div>`;
+    } else if (kind === 'customers') {
+        const customers = dbRead(K.customers).slice().sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+        body = `
+        <div class="input-group"><label>مشتری خاص (اختیاری)</label>
+            <select id="lp_item"><option value="">همه مشتریان</option>${customers.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>مرتب‌سازی</label>
+            <select id="lp_sort">
+                <option value="name">بر اساس نام (الفبا)</option>
+                <option value="purchaseDesc">بیشترین خرید</option>
+                <option value="purchaseAsc">کمترین خرید</option>
+                <option value="profitDesc">پرسودترین مشتری</option>
+                <option value="profitAsc">کم‌سودترین مشتری</option>
+                <option value="debtDesc">بیشترین بدهی</option>
+            </select>
+        </div>`;
+    } else if (kind === 'invoices') {
+        const customers = dbRead(K.customers).slice().sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+        body = `
+        <div class="input-group"><label>مشتری خاص (اختیاری)</label>
+            <select id="lp_item"><option value="">همه مشتریان</option>${customers.map(c => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')}</select>
+        </div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('lp_from', '', 'از تاریخ (اختیاری)')}
+            ${jalaliDateField('lp_to', '', 'تا تاریخ (اختیاری)')}
+        </div>
+        <div class="input-group"><label>مرتب‌سازی</label>
+            <select id="lp_sort">
+                <option value="dateDesc">تاریخ: جدیدترین اول</option>
+                <option value="dateAsc">تاریخ: قدیمی‌ترین اول</option>
+                <option value="customerName">بر اساس نام مشتری</option>
+                <option value="amountDesc">بیشترین خرید تا کمترین</option>
+                <option value="amountAsc">کمترین خرید تا بیشترین</option>
+            </select>
+        </div>`;
+    } else if (kind === 'purchases') {
+        const suppliers = Array.from(new Set(dbRead(K.purchases).map(p => p.supplier))).sort((a, b) => a.localeCompare(b, 'fa'));
+        body = `
+        <div class="input-group"><label>تأمین‌کننده خاص (اختیاری)</label>
+            <select id="lp_item"><option value="">همه تأمین‌کنندگان</option>${suppliers.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>مرتب‌سازی</label>
+            <select id="lp_sort">
+                <option value="name">بر اساس نام</option>
+                <option value="amountDesc">بیشترین خرید</option>
+                <option value="amountAsc">کمترین خرید</option>
+                <option value="debtDesc">بیشترین بدهی</option>
+            </select>
+        </div>
+        <div class="settings-row" style="padding-inline:0;">
+            <div class="settings-row-label">مقایسه قیمت کالاهای مشابه بین تأمین‌کنندگان</div>
+            <label class="switch"><input type="checkbox" id="lp_compare"><span class="switch-slider"></span></label>
+        </div>
+        <p class="txt-caption">با فعال کردن این گزینه، برای هر کالا نشان داده می‌شود کدام تأمین‌کننده ارزان‌تر فروخته است.</p>`;
+    } else {
+        printListGeneric(kind);
+        return;
+    }
+    openModal('انتخاب و مرتب‌سازی برای چاپ', `${body}<button class="calc-btn" style="width:100%; margin-top:10px;" onclick="printListGenericFinal('${kind}')">🖨 چاپ</button>`);
+}
+window.openListPrintOptions = openListPrintOptions;
+
+function printListGenericFinal(kind) {
+    const itemFilter = (document.getElementById('lp_item') || {}).value || '';
+    const sort = (document.getElementById('lp_sort') || {}).value || '';
+    let title = '', rows = '', headCols = [], extraHtml = '';
+
+    if (kind === 'products') {
+        const cat = (document.getElementById('lp_cat') || {}).value || '';
+        let list = dbRead(K.products);
+        if (itemFilter) list = list.filter(p => p.id === itemFilter);
+        else if (cat) list = list.filter(p => (p.category || 'بدون دسته') === cat);
+        const sold = {};
+        dbRead(K.invoices).forEach(inv => inv.items.forEach(it => { if (it.productId) sold[it.productId] = (sold[it.productId] || 0) + num(it.qty); }));
+        if (sort === 'priceDesc') list.sort((a, b) => num(b.sellPrice) - num(a.sellPrice));
+        else if (sort === 'priceAsc') list.sort((a, b) => num(a.sellPrice) - num(b.sellPrice));
+        else if (sort === 'bestSeller') list.sort((a, b) => (sold[b.id] || 0) - (sold[a.id] || 0));
+        else if (sort === 'lowStock') list.sort((a, b) => num(a.qty) - num(b.qty));
+        else if (sort === 'highStock') list.sort((a, b) => num(b.qty) - num(a.qty));
+        else list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+        title = 'لیست کالا و انبار';
+        headCols = ['نام کالا', 'دسته', 'موجودی', 'قیمت خرید', 'قیمت فروش', 'تعداد فروش رفته'];
+        rows = list.map(p => `<tr><td class="text-cell">${esc(p.name)}</td><td>${esc(p.category || '-')}</td><td>${num(p.qty).toLocaleString(localeForDigits())} ${esc(p.unit)}</td><td>${moneyPlain(p.buyPrice)}</td><td>${moneyPlain(p.sellPrice)}</td><td>${(sold[p.id] || 0).toLocaleString(localeForDigits())}</td></tr>`).join('');
+    } else if (kind === 'customers') {
+        let list = dbRead(K.customers);
+        if (itemFilter) list = list.filter(c => c.id === itemFilter);
+        const stats = {};
+        dbRead(K.invoices).forEach(inv => {
+            if (!inv.customerId) return;
+            if (!stats[inv.customerId]) stats[inv.customerId] = { sales: 0, profit: 0 };
+            const products = dbRead(K.products);
+            const cost = inv.items.reduce((s, it) => { const p = products.find(x => x.id === it.productId); return s + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
+            stats[inv.customerId].sales += num(inv.total);
+            stats[inv.customerId].profit += num(inv.total) - cost;
+        });
+        const statFor = (id) => stats[id] || { sales: 0, profit: 0 };
+        if (sort === 'purchaseDesc') list.sort((a, b) => statFor(b.id).sales - statFor(a.id).sales);
+        else if (sort === 'purchaseAsc') list.sort((a, b) => statFor(a.id).sales - statFor(b.id).sales);
+        else if (sort === 'profitDesc') list.sort((a, b) => statFor(b.id).profit - statFor(a.id).profit);
+        else if (sort === 'profitAsc') list.sort((a, b) => statFor(a.id).profit - statFor(b.id).profit);
+        else if (sort === 'debtDesc') list.sort((a, b) => customerBalance(b.id) - customerBalance(a.id));
+        else list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+        title = 'لیست مشتریان';
+        headCols = ['نام', 'تلفن', 'استان/شهر', 'جمع خرید', 'سود از این مشتری', 'مانده بدهی'];
+        rows = list.map(c => `<tr><td class="text-cell">${esc(c.name)}</td><td>${esc(c.phone || '-')}</td><td>${esc(c.province || '-')} / ${esc(c.city || '-')}</td><td>${moneyPlain(statFor(c.id).sales)}</td><td>${moneyPlain(statFor(c.id).profit)}</td><td>${moneyPlain(customerBalance(c.id))}</td></tr>`).join('');
+    } else if (kind === 'invoices') {
+        let list = dbRead(K.invoices).slice();
+        if (itemFilter) list = list.filter(i => (i.customerNameSnapshot || '') === itemFilter);
+        const from = getJalaliInputISO('lp_from'), to = getJalaliInputISO('lp_to');
+        if (from) list = list.filter(i => new Date(i.date) >= new Date(from));
+        if (to) list = list.filter(i => new Date(i.date) <= new Date(to));
+        if (sort === 'dateAsc') list.sort((a, b) => new Date(a.date) - new Date(b.date));
+        else if (sort === 'customerName') list.sort((a, b) => (a.customerNameSnapshot || '').localeCompare(b.customerNameSnapshot || '', 'fa'));
+        else if (sort === 'amountDesc') list.sort((a, b) => num(b.total) - num(a.total));
+        else if (sort === 'amountAsc') list.sort((a, b) => num(a.total) - num(b.total));
+        else list.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const total = list.reduce((s, i) => s + num(i.total), 0);
+        title = 'لیست فاکتورهای فروش';
+        headCols = ['شماره', 'تاریخ', 'مشتری', 'مبلغ کل', 'وضعیت'];
+        rows = list.map(i => `<tr><td>${i.number}</td><td>${fmtDate(i.date)}</td><td class="text-cell">${esc(i.customerNameSnapshot || 'نقدی')}</td><td>${moneyPlain(i.total)}</td><td>${i.status === 'paid' ? 'پرداخت‌شده' : i.status === 'partial' ? 'جزئی' : 'پرداخت‌نشده'}</td></tr>`).join('');
+        extraHtml = `<div class="totals-row grand" style="margin-top:8px;"><span>جمع کل (${list.length.toLocaleString(localeForDigits())} فاکتور)</span><span>${moneyPlain(total)}</span></div>`;
+    } else if (kind === 'purchases') {
+        let list = dbRead(K.purchases).slice();
+        if (itemFilter) list = list.filter(p => p.supplier === itemFilter);
+        if (sort === 'amountDesc') list.sort((a, b) => num(b.total) - num(a.total));
+        else if (sort === 'amountAsc') list.sort((a, b) => num(a.total) - num(b.total));
+        else if (sort === 'debtDesc') list.sort((a, b) => (num(b.total) - num(b.paidAmount)) - (num(a.total) - num(a.paidAmount)));
+        else list.sort((a, b) => a.supplier.localeCompare(b.supplier, 'fa'));
+        title = 'لیست خریدها';
+        headCols = ['شماره', 'تاریخ', 'تأمین‌کننده', 'مبلغ کل', 'مانده بدهی'];
+        rows = list.map(p => `<tr><td>${p.number}</td><td>${fmtDate(p.date)}</td><td class="text-cell">${esc(p.supplier)}</td><td>${moneyPlain(p.total)}</td><td>${moneyPlain(Math.max(0, p.total - p.paidAmount))}</td></tr>`).join('');
+        if ((document.getElementById('lp_compare') || {}).checked) {
+            const byItem = {};
+            dbRead(K.purchases).forEach(p => p.items.forEach(it => {
+                const key = it.name; if (!byItem[key]) byItem[key] = [];
+                byItem[key].push({ supplier: p.supplier, price: num(it.price) });
+            }));
+            const compareRows = Object.entries(byItem).filter(([, arr]) => arr.length > 1).map(([name, arr]) => {
+                const cheapest = arr.slice().sort((a, b) => a.price - b.price)[0];
+                return `<tr><td class="text-cell">${esc(name)}</td><td class="text-cell">${esc(cheapest.supplier)}</td><td>${moneyPlain(cheapest.price)}</td></tr>`;
+            }).join('');
+            extraHtml = `<h4 style="margin-top:16px;">ارزان‌ترین تأمین‌کننده برای هر کالا</h4><table class="bill-table"><thead><tr><th>کالا</th><th>ارزان‌ترین تأمین‌کننده</th><th>قیمت</th></tr></thead><tbody>${compareRows || '<tr><td colspan="3">کالای مشترکی بین تأمین‌کنندگان یافت نشد</td></tr>'}</tbody></table>`;
+        }
+    }
+
+    const html = `${billTemplateOpenTag()}${billHeaderHtml(title)}
+        <table class="bill-table"><thead><tr>${headCols.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headCols.length}">داده‌ای موجود نیست</td></tr>`}</tbody></table>
+        ${extraHtml}
+        <div class="txt-caption" style="margin-top:10px;">تاریخ چاپ: ${fmtDateTime(todayISO())}</div>
+    </div>${printFooterButton()}`;
+    closeModal();
+    openModal('پیش‌نمایش چاپ', html);
+}
+window.printListGenericFinal = printListGenericFinal;
+
 function printListGeneric(kind) {
     let title = '', rows = '', headCols = [];
     if (kind === 'products') {
@@ -2739,13 +3065,7 @@ function openPayrollPayment(employeeId) {
                 <option value="check">با چک</option>
             </select>
         </div>
-        <div id="pp_checkBox" style="display:none;" class="pm-detail-box">
-            <div class="mini-form-grid">
-                <div class="input-group"><label>شماره چک</label><input type="text" id="pp_ckNumber"></div>
-                <div class="input-group"><label>بانک</label><input type="text" id="pp_ckBank"></div>
-            </div>
-            ${jalaliDateField('pp_ckDue', '', 'تاریخ سررسید چک')}
-        </div>
+        <div id="pp_checkBox" style="display:none;">${paymentDetailsHtml('pp', 'check', {})}</div>
         <div class="input-group"><label>بابت / یادداشت</label><input type="text" id="pp_note" placeholder="مثلاً: حقوق مرداد ماه"></div>
         <button class="calc-btn" onclick="savePayrollPayment('${employeeId}')">ثبت پرداخت</button>
     `;
@@ -2766,15 +3086,21 @@ function savePayrollPayment(employeeId) {
         tx.push({ id: uid('tx'), date, type: 'out', amount, desc: `پرداخت حقوق: ${emp ? emp.name : ''} (${note})` });
         dbWrite(K.cashtx, tx);
     } else {
-        const dueDate = getJalaliInputISO('pp_ckDue') || date;
+        const pd = paymentDetailsCollect('pp', 'check');
         const checks = dbRead(K.checks);
-        checkId = uid('chk');
-        checks.push({
-            id: checkId, who: emp ? emp.name : '', direction: 'pay', amount,
-            number: document.getElementById('pp_ckNumber').value.trim(), bank: document.getElementById('pp_ckBank').value.trim(),
-            dueDate, status: 'pending', note: 'پرداخت حقوق: ' + note
-        });
-        dbWrite(K.checks, checks);
+        if (pd.source === 'existing' && pd.existingCheckId) {
+            const idx = checks.findIndex(c => c.id === pd.existingCheckId);
+            if (idx > -1) { checks[idx].endorsedTo = emp ? emp.name : ''; checks[idx].endorsedDate = todayISO(); checks[idx].note = (checks[idx].note ? checks[idx].note + ' — ' : '') + `واگذار شده بابت حقوق: ${note}`; checkId = checks[idx].id; }
+            dbWrite(K.checks, checks);
+        } else {
+            checkId = uid('chk');
+            checks.push({
+                id: checkId, who: emp ? emp.name : '', direction: 'pay', amount,
+                number: pd.checkNumber, bank: pd.bank, accountNo: pd.accountNo, sayadNo: pd.sayadNo,
+                dueDate: pd.dueDate || date, status: 'pending', note: 'پرداخت حقوق: ' + note
+            });
+            dbWrite(K.checks, checks);
+        }
     }
 
     const payroll = dbRead(K.payroll);
@@ -2800,15 +3126,25 @@ window.printPayrollList = printPayrollList;
 
 function openExpenseEditor(id) {
     const e = id ? dbRead(K.expenses).find(x => x.id === id) : null;
+    const employees = dbRead(K.employees);
+    const showEmp = e ? e.category === 'حقوق پرسنل' : false;
     const html = `
         <div class="input-group"><label>عنوان هزینه *</label><input type="text" id="ef_title" value="${esc(e ? e.title : '')}" placeholder="مثلاً: قبض برق مغازه"></div>
         <div class="input-group"><label>دسته‌بندی / موضوع</label>
-            <select id="ef_category" onchange="if(this.value==='__new__'){document.getElementById('ef_newCatWrap').style.display='block';}else{document.getElementById('ef_newCatWrap').style.display='none';}">
+            <select id="ef_category" onchange="efOnCategoryChange()">
                 ${getExpenseCategories().map(c => `<option value="${esc(c)}" ${e && e.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
                 <option value="__new__">+ موضوع جدید…</option>
             </select>
         </div>
         <div class="input-group" id="ef_newCatWrap" style="display:none;"><label>عنوان موضوع جدید</label><input type="text" id="ef_newCat" placeholder="مثلاً: هزینه بسته‌بندی"></div>
+        <div class="input-group" id="ef_empWrap" style="display:${showEmp ? 'block' : 'none'};">
+            <label>پرسنل مربوطه</label>
+            <select id="ef_employee">
+                <option value="">— انتخاب نشده —</option>
+                ${employees.map(emp => `<option value="${emp.id}" ${e && e.employeeId === emp.id ? 'selected' : ''}>${esc(emp.name)}</option>`).join('')}
+            </select>
+            ${!employees.length ? `<p class="txt-caption">هنوز پرسنلی ثبت نشده؛ از منوی «حقوق پرسنل» اضافه کنید.</p>` : ''}
+        </div>
         ${jalaliDateField('ef_date', e ? e.date : todayISO(), 'تاریخ')}
         <div class="input-group"><label>مبلغ *</label><input type="text" inputmode="numeric" id="ef_amount" value="${e ? num(e.amount) : ''}" placeholder="0"></div>
         <div class="input-group"><label>یادداشت</label><textarea id="ef_note">${esc(e ? e.note : '')}</textarea></div>
@@ -2818,6 +3154,12 @@ function openExpenseEditor(id) {
     openModal(e ? 'ویرایش هزینه' : 'هزینه جدید', html);
 }
 window.openExpenseEditor = openExpenseEditor;
+function efOnCategoryChange() {
+    const val = document.getElementById('ef_category').value;
+    document.getElementById('ef_newCatWrap').style.display = (val === '__new__') ? 'block' : 'none';
+    document.getElementById('ef_empWrap').style.display = (val === 'حقوق پرسنل') ? 'block' : 'none';
+}
+window.efOnCategoryChange = efOnCategoryChange;
 
 function saveExpense(id) {
     const title = document.getElementById('ef_title').value.trim();
@@ -2829,9 +3171,10 @@ function saveExpense(id) {
         if (!category) { showToast('عنوان موضوع جدید را وارد کنید', 'error'); return; }
         addExpenseCategory(category);
     }
+    const employeeId = (category === 'حقوق پرسنل') ? (document.getElementById('ef_employee').value || null) : null;
     const list = dbRead(K.expenses);
     const date = getJalaliInputISO('ef_date') || todayISO();
-    const data = { title, category, amount, date, note: document.getElementById('ef_note').value.trim() };
+    const data = { title, category, amount, date, employeeId, note: document.getElementById('ef_note').value.trim() };
     if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
     else list.push(Object.assign({ id: uid('exp'), date: todayISO() }, data));
     dbWrite(K.expenses, list);
@@ -2855,21 +3198,35 @@ window.deleteExpense = deleteExpense;
 function treasuryLedger() {
     const invoices = dbRead(K.invoices).filter(i => num(i.paidAmount) > 0).map(i => ({ date: i.date, type: 'in', amount: i.paidAmount, desc: `دریافت فاکتور فروش #${i.number} (${i.customerNameSnapshot || 'مشتری نقدی'})` }));
     const purchases = dbRead(K.purchases).filter(p => num(p.paidAmount) > 0).map(p => ({ date: p.date, type: 'out', amount: p.paidAmount, desc: `پرداخت خرید #${p.number} (${p.supplier})` }));
-    const expenses = dbRead(K.expenses).map(e => ({ date: e.date, type: 'out', amount: e.amount, desc: 'هزینه: ' + e.title }));
+    // NOTE: expense line-items are intentionally NOT mixed into this feed anymore — per request,
+    // هزینه‌ها only appear in their own "هزینه‌ها" page/report, not inside صندوق و بانک.
     const manual = dbRead(K.cashtx).map(t => ({ date: t.date, type: t.type, amount: t.amount, desc: t.desc, manualId: t.id }));
-    return [...invoices, ...purchases, ...expenses, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
+    return [...invoices, ...purchases, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
 const CASHBOX_TYPES = [['cash', 'صندوق نقدی مغازه'], ['pos', 'دستگاه کارت‌خوان'], ['bank', 'حساب بانکی'], ['check', 'چک']];
+const CURRENCY_LIST = [['تومان', 'تومان (واحد اصلی صندوق)'], ['دلار', 'دلار آمریکا (USD)'], ['یورو', 'یورو (EUR)'], ['پوند', 'پوند انگلیس (GBP)'], ['درهم', 'درهم امارات (AED)'], ['دینار عراق', 'دینار عراق (IQD)'], ['لیر ترکیه', 'لیر ترکیه (TRY)'], ['یوان', 'یوان چین (CNY)'], ['روبل', 'روبل روسیه (RUB)'], ['__custom__', 'ارز دلخواه…']];
 function renderTreasury() {
     const ledger = treasuryLedger();
     const balance = ledger.reduce((s, t) => s + (t.type === 'in' ? num(t.amount) : -num(t.amount)), 0);
     const banks = dbRead(K.bankAccounts);
+    const assets = dbRead(K.otherAssets);
     return `
     ${viewHeader('مالی', 'صندوق و بانک', 'گردش کامل وجوه نقد فروشگاه', `<button class="nav-btn" onclick="printLedgerList()" title="چاپ گردش صندوق"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`)}
     <div class="stat-grid" style="grid-template-columns:1fr;">
-        <div class="stat-card"><div class="stat-val" style="color:${balance >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${money(balance)}</div><div class="stat-label">موجودی فعلی صندوق نقدی</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:${balance >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${money(balance)}</div><div class="stat-label">موجودی فعلی صندوق نقدی (${esc(currencyLabel())})</div></div>
     </div>
+    <button class="calc-btn" style="width:100%; margin-bottom:14px;" onclick="openCashCapitalEntry()">💰 ثبت سرمایه اولیه / واریز (نقدی، ارز، طلا و نقره)</button>
+
+    ${assets.length ? `<div class="section-box">
+        <div class="section-title">دارایی‌های ارزی و طلا/نقره</div>
+        <p class="txt-caption" style="margin-bottom:10px;">این موارد جدا از موجودی نقدی بالا نگه‌داری می‌شوند و در جمع صندوق ریالی محاسبه نمی‌شوند.</p>
+        ${assets.map(a => `
+        <div class="bank-account-card">
+            <div><div class="bac-name">${esc(assetLabel(a))}</div><div class="bac-sub">${fmtDate(a.date)}${a.note ? ' · ' + esc(a.note) : ''}</div></div>
+            <button class="btn-action" style="color:var(--accent-rose);" onclick="deleteOtherAsset('${a.id}')">حذف</button>
+        </div>`).join('')}
+    </div>` : ''}
 
     <div class="section-box">
         <div class="section-title">حساب‌های بانکی و دستگاه‌های کارت‌خوان</div>
@@ -2891,14 +3248,156 @@ function renderTreasury() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
     </div>
-    ${ledger.length ? ledger.slice(0, 80).map(t => `
+    ${ledger.length ? monthGroupedListHtml(ledger, t => t.date, t => `
         <div class="list-item">
             <div class="list-item-row">
                 <div><div class="list-item-title">${esc(t.desc)}</div><div class="list-item-sub">${fmtDate(t.date)}</div></div>
                 <div class="list-item-title" style="color:${t.type === 'in' ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${t.type === 'in' ? '+' : '−'}${moneyPlain(t.amount)}</div>
             </div>
-        </div>`).join('') : `<div class="empty-state">هنوز تراکنشی ثبت نشده است.</div>`}`;
+        </div>`) : `<div class="empty-state">هنوز تراکنشی ثبت نشده است.</div>`}`;
 }
+
+function assetLabel(a) {
+    if (a.type === 'currency') return `${num(a.amount).toLocaleString(localeForDigits())} ${esc(a.currency)}`;
+    if (a.type === 'gold') {
+        if (a.goldType === 'coin') return `سکه ${esc(a.coinEra)} ${esc(a.coinSize)} — ${num(a.qty).toLocaleString(localeForDigits())} عدد (هر عدد ${moneyPlain(a.unitPrice)})`;
+        if (a.goldType === 'melted') return `طلای آب‌شده — ${num(a.grams).toLocaleString(localeForDigits())} گرم (هر گرم ${moneyPlain(a.pricePerGram)})`;
+        if (a.goldType === 'silver') return `نقره — ${num(a.grams).toLocaleString(localeForDigits())} گرم (هر گرم ${moneyPlain(a.pricePerGram)})`;
+        return `${esc(a.customLabel || 'دارایی دلخواه')} — ${moneyPlain(a.customValue)}`;
+    }
+    return '-';
+}
+
+function openCashCapitalEntry() {
+    const html = `
+        <div class="input-group"><label>نوع دارایی</label>
+            <select id="cap_type" onchange="capOnTypeChange()">
+                <option value="currency">وجه نقد (تومان / ارز خارجی)</option>
+                <option value="gold">طلا / سکه / نقره</option>
+            </select>
+        </div>
+        <div id="cap_box"></div>
+        ${jalaliDateField('cap_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>توضیحات</label><input type="text" id="cap_note" placeholder="مثلاً: سرمایه اولیه راه‌اندازی مغازه"></div>
+        <button class="calc-btn" onclick="saveCashCapitalEntry()">ثبت</button>
+    `;
+    openModal('ثبت سرمایه / دارایی', html);
+    setTimeout(capOnTypeChange, 20);
+}
+window.openCashCapitalEntry = openCashCapitalEntry;
+function capOnTypeChange() {
+    const type = document.getElementById('cap_type').value;
+    const box = document.getElementById('cap_box');
+    if (type === 'currency') {
+        box.innerHTML = `
+            <div class="input-group"><label>مبلغ *</label><input type="text" inputmode="numeric" id="cap_amount" placeholder="0"></div>
+            <div class="input-group"><label>واحد پول</label>
+                <select id="cap_currency" onchange="document.getElementById('cap_customCurWrap').style.display=(this.value==='__custom__')?'block':'none';">
+                    ${CURRENCY_LIST.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="input-group" id="cap_customCurWrap" style="display:none;"><label>نام ارز دلخواه</label><input type="text" id="cap_customCur" placeholder="مثلاً: درهم قطر"></div>
+            <p class="txt-caption">اگر واحد، تومان باشد مستقیماً به موجودی صندوق نقدی اضافه می‌شود؛ در غیر این صورت به‌عنوان دارایی ارزی جدا نگه‌داری می‌شود.</p>
+        `;
+    } else {
+        box.innerHTML = `
+            <div class="input-group"><label>نوع</label>
+                <select id="cap_goldType" onchange="capOnGoldTypeChange()">
+                    <option value="coin">سکه</option>
+                    <option value="melted">طلای آب‌شده / شمش</option>
+                    <option value="silver">نقره</option>
+                    <option value="custom">دلخواه</option>
+                </select>
+            </div>
+            <div id="cap_goldBox"></div>
+        `;
+        setTimeout(capOnGoldTypeChange, 20);
+    }
+}
+window.capOnTypeChange = capOnTypeChange;
+function capOnGoldTypeChange() {
+    const type = document.getElementById('cap_goldType').value;
+    const box = document.getElementById('cap_goldBox');
+    if (type === 'coin') {
+        box.innerHTML = `
+            <div class="mini-form-grid">
+                <div class="input-group"><label>قدیم / جدید</label>
+                    <select id="cap_coinEra"><option value="جدید">جدید</option><option value="قدیم">قدیم</option></select>
+                </div>
+                <div class="input-group"><label>اندازه سکه</label>
+                    <select id="cap_coinSize"><option value="تمام">تمام</option><option value="نیم">نیم</option><option value="ربع">ربع</option><option value="گرمی">گرمی</option></select>
+                </div>
+            </div>
+            <div class="mini-form-grid">
+                <div class="input-group"><label>تعداد</label><input type="text" inputmode="numeric" id="cap_qty" value="1"></div>
+                <div class="input-group"><label>قیمت هر عدد</label><input type="text" inputmode="numeric" id="cap_unitPrice" placeholder="0"></div>
+            </div>
+        `;
+    } else if (type === 'melted' || type === 'silver') {
+        box.innerHTML = `
+            <div class="mini-form-grid">
+                <div class="input-group"><label>وزن (گرم)</label><input type="text" inputmode="numeric" id="cap_grams" placeholder="0"></div>
+                <div class="input-group"><label>قیمت هر گرم</label><input type="text" inputmode="numeric" id="cap_pricePerGram" placeholder="0"></div>
+            </div>
+        `;
+    } else {
+        box.innerHTML = `
+            <div class="input-group"><label>عنوان دارایی</label><input type="text" id="cap_customLabel" placeholder="مثلاً: جواهرات خانوادگی"></div>
+            <div class="input-group"><label>ارزش تخمینی</label><input type="text" inputmode="numeric" id="cap_customValue" placeholder="0"></div>
+        `;
+    }
+}
+window.capOnGoldTypeChange = capOnGoldTypeChange;
+function saveCashCapitalEntry() {
+    const type = document.getElementById('cap_type').value;
+    const date = getJalaliInputISO('cap_date') || todayISO();
+    const note = document.getElementById('cap_note').value.trim();
+    if (type === 'currency') {
+        const amount = num(document.getElementById('cap_amount').value);
+        if (!amount) { showToast('مبلغ را وارد کنید', 'error'); return; }
+        let currency = document.getElementById('cap_currency').value;
+        if (currency === '__custom__') currency = document.getElementById('cap_customCur').value.trim() || 'ارز دلخواه';
+        if (currency === 'تومان') {
+            const tx = dbRead(K.cashtx);
+            tx.push({ id: uid('tx'), date, type: 'in', amount, desc: 'سرمایه/واریز نقدی' + (note ? ': ' + note : '') });
+            dbWrite(K.cashtx, tx);
+        } else {
+            const assets = dbRead(K.otherAssets);
+            assets.push({ id: uid('ast'), type: 'currency', currency, amount, date, note });
+            dbWrite(K.otherAssets, assets);
+        }
+    } else {
+        const goldType = document.getElementById('cap_goldType').value;
+        const assets = dbRead(K.otherAssets);
+        const entry = { id: uid('ast'), type: 'gold', goldType, date, note };
+        if (goldType === 'coin') {
+            entry.coinEra = document.getElementById('cap_coinEra').value;
+            entry.coinSize = document.getElementById('cap_coinSize').value;
+            entry.qty = num(document.getElementById('cap_qty').value) || 1;
+            entry.unitPrice = num(document.getElementById('cap_unitPrice').value);
+        } else if (goldType === 'melted' || goldType === 'silver') {
+            entry.grams = num(document.getElementById('cap_grams').value);
+            entry.pricePerGram = num(document.getElementById('cap_pricePerGram').value);
+        } else {
+            entry.customLabel = document.getElementById('cap_customLabel').value.trim();
+            entry.customValue = num(document.getElementById('cap_customValue').value);
+        }
+        assets.push(entry);
+        dbWrite(K.otherAssets, assets);
+    }
+    autoBackupTick();
+    closeModal();
+    showToast('ثبت شد', 'success');
+    switchView('treasury');
+}
+window.saveCashCapitalEntry = saveCashCapitalEntry;
+function deleteOtherAsset(id) {
+    if (!confirmAction('حذف این مورد؟')) return;
+    dbWrite(K.otherAssets, dbRead(K.otherAssets).filter(x => x.id !== id));
+    autoBackupTick();
+    switchView('treasury');
+}
+window.deleteOtherAsset = deleteOtherAsset;
 
 function openBankAccountEditor(id) {
     const b = id ? dbRead(K.bankAccounts).find(x => x.id === id) : null;
@@ -3045,14 +3544,43 @@ function deleteCheck(id) {
 window.deleteCheck = deleteCheck;
 
 function printChecksList() {
-    const all = dbRead(K.checks).slice().sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
-    const rows = all.map(c => `<tr><td class="text-cell">${esc(c.who)}</td><td>${c.direction === 'receive' ? 'دریافتی' : 'پرداختی'}</td><td>${moneyPlain(c.amount)}</td><td>${fmtDate(c.dueDate)}</td><td>${c.status === 'pending' ? 'در انتظار' : c.status === 'cashed' ? 'وصول‌شده' : 'برگشتی'}</td></tr>`).join('');
-    const html = `${billTemplateOpenTag()}${billHeaderHtml('لیست چک‌ها')}
-        <table class="bill-table"><thead><tr><th>طرف حساب</th><th>نوع</th><th>مبلغ</th><th>سررسید</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div>
-        ${printFooterButton()}`;
-    openModal('پیش‌نمایش چاپ — لیست چک‌ها', html);
+    const html = `
+        <p class="txt-caption" style="margin-bottom:10px;">وضعیت‌ها و جهت چک‌هایی که می‌خواهید چاپ شوند را انتخاب کنید.</p>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">در انتظار وصول</div><label class="switch"><input type="checkbox" id="pcl_pending" checked><span class="switch-slider"></span></label></div>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">وصول‌شده</div><label class="switch"><input type="checkbox" id="pcl_cashed" checked><span class="switch-slider"></span></label></div>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">برگشتی</div><label class="switch"><input type="checkbox" id="pcl_bounced" checked><span class="switch-slider"></span></label></div>
+        <div class="input-group" style="margin-top:10px;"><label>جهت چک</label>
+            <select id="pcl_dir"><option value="all">همه (دریافتی و پرداختی)</option><option value="receive">فقط دریافتی</option><option value="pay">فقط پرداختی</option></select>
+        </div>
+        <div class="input-group"><label>مرتب‌سازی</label>
+            <select id="pcl_sort"><option value="due">بر اساس نزدیک‌ترین سررسید</option><option value="amountDesc">بیشترین مبلغ تا کمترین</option><option value="amountAsc">کمترین مبلغ تا بیشترین</option></select>
+        </div>
+        <button class="calc-btn" style="width:100%; margin-top:10px;" onclick="printChecksListFinal()">🖨 چاپ</button>
+    `;
+    openModal('انتخاب چک‌ها برای چاپ', html);
 }
 window.printChecksList = printChecksList;
+function printChecksListFinal() {
+    const statuses = [];
+    if (document.getElementById('pcl_pending').checked) statuses.push('pending');
+    if (document.getElementById('pcl_cashed').checked) statuses.push('cashed');
+    if (document.getElementById('pcl_bounced').checked) statuses.push('bounced');
+    const dir = document.getElementById('pcl_dir').value;
+    const sort = document.getElementById('pcl_sort').value;
+    let all = dbRead(K.checks).filter(c => statuses.includes(c.status) && (dir === 'all' || c.direction === dir));
+    if (sort === 'due') all.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    else if (sort === 'amountDesc') all.sort((a, b) => num(b.amount) - num(a.amount));
+    else all.sort((a, b) => num(a.amount) - num(b.amount));
+    const total = all.reduce((s, c) => s + num(c.amount), 0);
+    const rows = all.map(c => `<tr><td class="text-cell">${esc(c.who)}</td><td>${c.direction === 'receive' ? 'دریافتی' : 'پرداختی'}</td><td>${moneyPlain(c.amount)}</td><td>${fmtDate(c.dueDate)}</td><td>${c.status === 'pending' ? 'در انتظار' : c.status === 'cashed' ? 'وصول‌شده' : 'برگشتی'}</td></tr>`).join('');
+    const html = `${billTemplateOpenTag()}${billHeaderHtml('لیست چک‌ها')}
+        <table class="bill-table"><thead><tr><th>طرف حساب</th><th>نوع</th><th>مبلغ</th><th>سررسید</th><th>وضعیت</th></tr></thead><tbody>${rows || '<tr><td colspan="5">موردی یافت نشد</td></tr>'}</tbody></table>
+        <div class="totals-row grand" style="margin-top:10px;"><span>جمع کل</span><span>${moneyPlain(total)}</span></div>
+        </div>${printFooterButton()}`;
+    closeModal();
+    openModal('پیش‌نمایش چاپ — لیست چک‌ها', html);
+}
+window.printChecksListFinal = printChecksListFinal;
 VIEW_RENDERERS.treasury = renderTreasury;
 
 function openCashTxEditor() {
@@ -3318,17 +3846,34 @@ function openSettleCustomer(customerId) {
         <p class="txt-caption" style="margin-bottom:10px;">مانده بدهی فعلی <strong>${esc(c.name)}</strong>: ${money(bal)}</p>
         <div class="input-group"><label>مبلغ دریافتی *</label><input type="text" inputmode="numeric" id="stl_amount" value="${bal}"></div>
         ${jalaliDateField('stl_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>روش دریافت</label>
+            <select id="stl_method" onchange="stlOnMethodChange()">
+                <option value="cash">نقدی (صندوق)</option>
+                <option value="card">کارت‌خوان / کارت به کارت</option>
+                <option value="check">چک</option>
+            </select>
+        </div>
+        <div id="stl_detailBox"></div>
         <div class="input-group"><label>توضیحات</label><input type="text" id="stl_note" placeholder="مثلاً: پرداخت نقدی حضوری"></div>
         <button class="calc-btn" onclick="settleCustomer('${customerId}')">ثبت دریافت و تسویه</button>
     `;
     openModal('تسویه حساب مشتری', html);
+    setTimeout(stlOnMethodChange, 20);
 }
 window.openSettleCustomer = openSettleCustomer;
+function stlOnMethodChange() {
+    const method = document.getElementById('stl_method').value;
+    const box = document.getElementById('stl_detailBox');
+    box.innerHTML = (method === 'cash') ? '' : paymentDetailsHtml('stl', method, {}, false);
+}
+window.stlOnMethodChange = stlOnMethodChange;
 function settleCustomer(customerId) {
     let amount = num(document.getElementById('stl_amount').value);
     if (!amount) { showToast('مبلغ را وارد کنید', 'error'); return; }
     const date = getJalaliInputISO('stl_date') || todayISO();
     const note = document.getElementById('stl_note').value.trim();
+    const method = document.getElementById('stl_method').value;
+    const customerName = dbRead(K.customers).find(c => c.id === customerId)?.name || '';
     const invoices = dbRead(K.invoices).filter(i => i.customerId === customerId && num(i.total) - num(i.paidAmount) > 0).sort((a, b) => new Date(a.date) - new Date(b.date));
     const allInvoices = dbRead(K.invoices);
     let remaining = amount;
@@ -3342,11 +3887,21 @@ function settleCustomer(customerId) {
         remaining -= applied;
     });
     dbWrite(K.invoices, allInvoices);
-    // any leftover beyond outstanding invoices is still logged as a manual cash-in so the treasury balance stays accurate
-    const applied = amount - remaining;
-    const tx = dbRead(K.cashtx);
-    tx.push({ id: uid('tx'), date, type: 'in', amount, desc: `تسویه حساب مشتری: ${dbRead(K.customers).find(c => c.id === customerId)?.name || ''}${note ? ' — ' + note : ''}` });
-    dbWrite(K.cashtx, tx);
+
+    if (method === 'check') {
+        const pd = paymentDetailsCollect('stl', 'check');
+        if (!pd.dueDate) { showToast('تاریخ سررسید چک را وارد کنید', 'error'); return; }
+        const checks = dbRead(K.checks);
+        checks.push({ id: uid('chk'), who: customerName, direction: 'receive', amount, number: pd.checkNumber, bank: pd.bank, accountNo: pd.accountNo, sayadNo: pd.sayadNo, dueDate: pd.dueDate, status: 'pending', note: 'تسویه حساب مشتری' + (note ? ': ' + note : '') });
+        dbWrite(K.checks, checks);
+    } else {
+        // cash and card both increase the cash/bank ledger immediately
+        const pd = method === 'card' ? paymentDetailsCollect('stl', 'card') : null;
+        const bankNote = pd && pd.bankAccountId ? (dbRead(K.bankAccounts).find(b => b.id === pd.bankAccountId) || {}).bankName : '';
+        const tx = dbRead(K.cashtx);
+        tx.push({ id: uid('tx'), date, type: 'in', amount, desc: `تسویه حساب مشتری: ${customerName}${method === 'card' ? ' (کارتی' + (bankNote ? ' — ' + bankNote : '') + ')' : ''}${note ? ' — ' + note : ''}` });
+        dbWrite(K.cashtx, tx);
+    }
     autoBackupTick();
     closeModal();
     showToast('تسویه حساب ثبت شد', 'success');
@@ -3362,10 +3917,19 @@ function openSettleSupplier(name) {
         <p class="txt-caption" style="margin-bottom:10px;">مانده بدهی فعلی به <strong>${esc(name)}</strong>: ${money(bal)}</p>
         <div class="input-group"><label>مبلغ پرداختی *</label><input type="text" inputmode="numeric" id="stl_amount" value="${bal}"></div>
         ${jalaliDateField('stl_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>روش پرداخت</label>
+            <select id="stl_method" onchange="stlOnMethodChange()">
+                <option value="cash">نقدی (صندوق)</option>
+                <option value="card">کارت‌خوان / کارت به کارت</option>
+                <option value="check">چک</option>
+            </select>
+        </div>
+        <div id="stl_detailBox"></div>
         <div class="input-group"><label>توضیحات</label><input type="text" id="stl_note"></div>
         <button class="calc-btn" onclick="settleSupplier('${esc(name).replace(/'/g, "\\'")}')">ثبت پرداخت و تسویه</button>
     `;
     openModal('تسویه حساب تأمین‌کننده', html);
+    setTimeout(stlOnMethodChange, 20);
 }
 window.openSettleSupplier = openSettleSupplier;
 function settleSupplier(name) {
@@ -3373,6 +3937,7 @@ function settleSupplier(name) {
     if (!amount) { showToast('مبلغ را وارد کنید', 'error'); return; }
     const date = getJalaliInputISO('stl_date') || todayISO();
     const note = document.getElementById('stl_note').value.trim();
+    const method = document.getElementById('stl_method').value;
     const allPurchases = dbRead(K.purchases);
     const unpaid = allPurchases.filter(p => p.supplier === name && num(p.total) - num(p.paidAmount) > 0).sort((a, b) => new Date(a.date) - new Date(b.date));
     let remaining = amount;
@@ -3386,9 +3951,26 @@ function settleSupplier(name) {
         remaining -= applied;
     });
     dbWrite(K.purchases, allPurchases);
-    const tx = dbRead(K.cashtx);
-    tx.push({ id: uid('tx'), date, type: 'out', amount, desc: `تسویه حساب تأمین‌کننده: ${name}${note ? ' — ' + note : ''}` });
-    dbWrite(K.cashtx, tx);
+
+    if (method === 'check') {
+        const pd = paymentDetailsCollect('stl', 'check');
+        if (!pd.dueDate && pd.source !== 'existing') { showToast('تاریخ سررسید چک را وارد کنید', 'error'); return; }
+        const checks = dbRead(K.checks);
+        if (pd.source === 'existing' && pd.existingCheckId) {
+            const idx = checks.findIndex(c => c.id === pd.existingCheckId);
+            if (idx > -1) { checks[idx].endorsedTo = name; checks[idx].endorsedDate = todayISO(); checks[idx].note = (checks[idx].note ? checks[idx].note + ' — ' : '') + `واگذار شده بابت تسویه حساب ${name}`; }
+            dbWrite(K.checks, checks);
+        } else {
+            checks.push({ id: uid('chk'), who: name, direction: 'pay', amount, number: pd.checkNumber, bank: pd.bank, accountNo: pd.accountNo, sayadNo: pd.sayadNo, dueDate: pd.dueDate, status: 'pending', note: 'تسویه حساب تأمین‌کننده' + (note ? ': ' + note : '') });
+            dbWrite(K.checks, checks);
+        }
+    } else {
+        const pd = method === 'card' ? paymentDetailsCollect('stl', 'card') : null;
+        const bankNote = pd && pd.bankAccountId ? (dbRead(K.bankAccounts).find(b => b.id === pd.bankAccountId) || {}).bankName : '';
+        const tx = dbRead(K.cashtx);
+        tx.push({ id: uid('tx'), date, type: 'out', amount, desc: `تسویه حساب تأمین‌کننده: ${name}${method === 'card' ? ' (کارتی' + (bankNote ? ' — ' + bankNote : '') + ')' : ''}${note ? ' — ' + note : ''}` });
+        dbWrite(K.cashtx, tx);
+    }
     autoBackupTick();
     closeModal();
     showToast('تسویه حساب ثبت شد', 'success');
