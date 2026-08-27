@@ -243,6 +243,7 @@ a { color: inherit; }
 .sidebar-brand { display: none; }
 .nav-section-label { display: none; }
 .sidebar-collapse-btn { display: none; }
+.sidebar-scroll-area { display: contents; } /* on mobile, its children stay direct flex-items of .bottom-nav (unchanged layout) */
 
 .bn-item {
     background: none; border: none; color: var(--text-muted);
@@ -269,20 +270,27 @@ a { color: inherit; }
 
     .bottom-nav {
         position: fixed; inset-inline-start: 0; top: 0; bottom: 0; left: auto; transform: none;
-        width: var(--sidebar-w); max-width: none; height: 100vh;
-        flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px;
+        width: var(--sidebar-w); max-width: none; height: 100vh; height: 100dvh;
+        flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0;
         padding: 18px 12px; border-top: none; border-inline-end: 1px solid var(--border-color);
-        border-radius: 0; overflow-y: auto; overflow-x: hidden; transition: width 0.25s ease, padding 0.25s ease;
+        border-radius: 0; overflow: hidden; transition: width 0.25s ease, padding 0.25s ease;
+    }
+    /* Fixed header (store brand) + fixed footer (collapse button), with only the middle nav-item
+       list actually scrolling — this is what makes every item (down to پشتیبان‌گیری/تنظیمات)
+       reachable even on a short window, instead of the whole sidebar silently overflowing. */
+    .sidebar-scroll-area {
+        display: flex; flex-direction: column; gap: 2px;
+        flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
         scrollbar-gutter: stable;
     }
-    .bottom-nav::-webkit-scrollbar { width: 5px; }
-    .bottom-nav::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--r-pill); transition: background 0.2s ease; }
-    .bottom-nav:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    .sidebar-scroll-area::-webkit-scrollbar { width: 5px; }
+    .sidebar-scroll-area::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--r-pill); transition: background 0.2s ease; }
+    .sidebar-scroll-area:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
     .app-shell[data-sidebar-collapsed="true"] .bottom-nav { width: var(--sidebar-w-collapsed); padding: 18px 10px; }
 
     .sidebar-brand {
         display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px;
-        border-bottom: 1px solid var(--border-color); margin-bottom: 12px;
+        border-bottom: 1px solid var(--border-color); margin-bottom: 12px; flex-shrink: 0;
     }
     .sidebar-brand-icon {
         width: 36px; height: 36px; border-radius: var(--r-md); flex-shrink: 0;
@@ -336,7 +344,7 @@ a { color: inherit; }
     .bn-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 
     .sidebar-collapse-btn {
-        display: flex; align-items: center; justify-content: center; margin-top: auto;
+        display: flex; align-items: center; justify-content: center; margin-top: 10px; flex-shrink: 0;
         width: 100%; padding: 9px; border-radius: var(--r-md); border: 1px solid var(--border-color);
         background: transparent; color: var(--text-muted); cursor: pointer; gap: 8px; font-size: 0.72rem; font-weight: 700;
     }
@@ -719,6 +727,12 @@ input[type="range"] { accent-color: var(--accent-glow); height: 18px; cursor: po
 }
 .modal-overlay.active .modal-card { transform: scale(1) translateY(0); opacity: 1; }
 
+/* stacks above the generic modal so a date-picker/onboarding popup can appear on top of an open form */
+.jalali-picker-overlay { z-index: 1100; }
+.jalali-picker-overlay .modal-card { max-width: 360px; }
+#welcomeTourOverlay { z-index: 1050; }
+#welcomeTourOverlay .modal-card { max-width: 480px; }
+
 .modal-header {
     padding: 16px 18px; border-bottom: 1px solid var(--border-color);
     display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
@@ -1002,8 +1016,7 @@ input[type="range"] { accent-color: var(--accent-glow); height: 18px; cursor: po
 /* ---------------------------------------------------------------------- */
 .accordion-item { background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); margin-bottom: 8px; overflow: hidden; }
 .accordion-header { padding: 9px 12px; background: var(--surface-2); display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-weight: 700; font-size: 0.78rem; }
-.accordion-body { padding: 10px; display: none; border-top: 1px solid var(--border-color); }
-.accordion-item.active .accordion-body { display: block; }
+.accordion-body { padding: 10px; border-top: 1px solid var(--border-color); }
 
 /* ---------------------------------------------------------------------- */
 /* Side menu drawer (mobile)                                             */
