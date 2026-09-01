@@ -579,6 +579,13 @@ input[type="text"], input[type="number"], input[type="password"], input[type="da
     outline: none; direction: ltr; text-align: right; transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 select { direction: rtl; text-align: right; cursor: pointer; }
+/* Native <option> popups are rendered by the OS/browser chrome, not by our page CSS — they
+   almost always use a plain light background regardless of the app's dark theme. Since
+   <option> inherits `color` from the <select> (which is light-colored in dark mode), the
+   text was ending up light-on-light and effectively invisible. Force safe, explicit colors
+   so option text is always readable no matter the app theme. This is the fix for every
+   "dropdown menu shows nothing" report across the app. */
+select option { color: #16181d; background-color: #ffffff; }
 input[type="date"], input[type="time"] { color-scheme: dark; }
 .light-mode input[type="date"], .light-mode input[type="time"] { color-scheme: light; }
 input::placeholder, textarea::placeholder { color: var(--text-muted); font-weight: 500; }
@@ -1032,7 +1039,7 @@ input[type="range"] { accent-color: var(--accent-glow); height: 18px; cursor: po
 .side-menu-overlay.active .side-menu-panel { transform: translateX(0); }
 .side-menu-overlay .modal-card { display: none; }
 .side-menu-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
-.side-menu-body { padding: 16px; overflow-y: auto; flex: 1; }
+.side-menu-body { padding: 16px; overflow-y: auto; flex: 1; min-height: 0; }
 
 /* ---------------------------------------------------------------------- */
 /* PIN lock screen                                                       */
@@ -1329,6 +1336,21 @@ select {
 .tour-popup-actions { display: flex; gap: 8px; }
 .tour-popup-actions .btn-action, .tour-popup-actions .calc-btn { flex: 1; margin: 0; }
 @media (max-width: 600px) { .tour-popup { bottom: 78px; } }
+
+/* Cloud sync status chip (top nav) */
+.cloud-status-chip {
+    display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--r-pill);
+    background: var(--surface-2); border: 1px solid var(--border-color); cursor: pointer;
+    font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); white-space: nowrap;
+}
+.cloud-status-dot { width: 8px; height: 8px; border-radius: 50%; background: #9aa1af; flex-shrink: 0; }
+.cloud-status-chip[data-status="synced"] .cloud-status-dot { background: var(--accent-emerald); }
+.cloud-status-chip[data-status="syncing"] .cloud-status-dot { background: #a855f7; animation: cloudPulse 1s ease-in-out infinite; }
+.cloud-status-chip[data-status="error"] .cloud-status-dot { background: var(--accent-rose); }
+.cloud-status-chip[data-status="signedout"] .cloud-status-dot { background: #9aa1af; }
+@keyframes cloudPulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
+.cloud-user-avatar { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
+@media (max-width: 480px) { .cloud-status-chip #cloudStatusLabel { display: none; } .cloud-status-chip { padding: 6px; } }
 
 
 /* STRICT EXACT 1-PAGE A4 PRINT CSS (Zero Multi-page/Duplicates) */

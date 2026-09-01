@@ -735,6 +735,8 @@ function afterViewRender(name) {
     if (name === 'products' && document.getElementById('productListWrap')) renderProductFlatList();
     if (name === 'customers' && document.getElementById('customerListWrap')) renderCustomerFlatList();
     if (name === 'invoices' && document.getElementById('invoiceListWrap')) renderInvoiceFlatList();
+    if (name === 'invoiceNew') diApplyAutoPaid();
+    if (name === 'purchaseNew') dpApplyAutoPaid();
 }
 
 function viewHeader(eyebrow, title, subtitle, actionsHtml) {
@@ -1005,10 +1007,10 @@ function generateSeedData(businessType) {
 /* ---------------------------------------------------------------------------
    Onboarding wizard (first run)
    ------------------------------------------------------------------------- */
-let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true };
+let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
 
 function startOnboarding() {
-    onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true };
+    onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
     const overlay = document.getElementById('onboardOverlay');
     overlay.hidden = false;
     renderOnboard();
@@ -1016,7 +1018,8 @@ function startOnboarding() {
 
 function renderOnboard() {
     const overlay = document.getElementById('onboardOverlay');
-    const dots = [1, 2, 3].map(n => `<span class="onboard-dot ${n <= onboardState.step ? 'active' : ''}"></span>`).join('');
+    const totalSteps = onboardState.hasPartners ? 4 : 4;
+    const dots = [1, 2, 3, 4].map(n => `<span class="onboard-dot ${n <= onboardState.step ? 'active' : ''}"></span>`).join('');
     let body = '';
 
     if (onboardState.step === 1) {
@@ -1050,6 +1053,30 @@ function renderOnboard() {
             <label>آدرس فروشگاه (برای سربرگ فاکتور)</label>
             <textarea id="ob_address" placeholder="آدرس کامل...">${esc(onboardState.address)}</textarea>
         </div>`;
+    } else if (onboardState.step === 3) {
+        body = `
+        <div class="input-group">
+            <label>این فروشگاه چگونه اداره می‌شود؟ *</label>
+            <div class="biz-type-grid" style="grid-template-columns:repeat(2,1fr);">
+                <div class="biz-type-card ${!onboardState.hasPartners ? 'active' : ''}" onclick="obSelectOwnership(false)">
+                    <div class="biz-type-emoji">🧍</div><div class="biz-type-label">تک‌نفره (فقط من)</div>
+                </div>
+                <div class="biz-type-card ${onboardState.hasPartners ? 'active' : ''}" onclick="obSelectOwnership(true)">
+                    <div class="biz-type-emoji">🤝</div><div class="biz-type-label">شراکتی (چند نفر)</div>
+                </div>
+            </div>
+        </div>
+        ${onboardState.hasPartners ? `
+        <div class="input-group">
+            <label>نحوه محاسبه درصد سهم هرکس</label>
+            <select id="ob_percentMode" onchange="onboardState.percentMode=this.value; renderOnboard();">
+                <option value="auto" ${onboardState.percentMode === 'auto' ? 'selected' : ''}>خودکار بر اساس مبلغ سرمایه هرکس</option>
+                <option value="manual" ${onboardState.percentMode === 'manual' ? 'selected' : ''}>دستی — خودم درصد هرکس را مشخص می‌کنم</option>
+            </select>
+        </div>
+        <div id="ob_partnersList">${obPartnersListHtml()}</div>
+        <button type="button" class="btn-action" style="width:100%; margin-top:6px;" onclick="obAddPartnerRow()">+ افزودن شریک</button>
+        ` : ''}`;
     } else {
         body = `
         <div class="input-group">
@@ -1088,10 +1115,43 @@ function renderOnboard() {
         <div id="onboardBody">${body}</div>
         <div class="onboard-nav">
             ${onboardState.step > 1 ? `<button class="btn-action" onclick="obPrev()">بازگشت</button>` : ''}
-            <button class="calc-btn" onclick="obNext()">${onboardState.step < 3 ? 'ادامه' : 'شروع کار با برنامه'}</button>
+            <button class="calc-btn" onclick="obNext()">${onboardState.step < 4 ? 'ادامه' : 'شروع کار با برنامه'}</button>
         </div>
     </div>`;
 }
+
+function obSelectOwnership(hasPartners) {
+    onboardState.hasPartners = hasPartners;
+    if (hasPartners && !onboardState.partnersDraft.length) {
+        onboardState.partnersDraft = [
+            { name: onboardState.ownerName || 'من (صاحب فروشگاه)', capital: '', percent: '' },
+            { name: '', capital: '', percent: '' }
+        ];
+    }
+    renderOnboard();
+}
+window.obSelectOwnership = obSelectOwnership;
+function obPartnersListHtml() {
+    return onboardState.partnersDraft.map((p, i) => `
+        <div class="mini-form-grid" style="align-items:end; margin-bottom:8px;">
+            <div class="input-group"><label>نام شریک ${(i + 1).toLocaleString(localeForDigits())}</label><input type="text" data-pidx="${i}" class="ob-partner-name" value="${esc(p.name)}" oninput="obSyncPartnerDraft()"></div>
+            ${onboardState.percentMode === 'auto'
+            ? `<div class="input-group"><label>مبلغ سرمایه (تومان)</label><input type="text" inputmode="numeric" data-pidx="${i}" class="ob-partner-capital" value="${esc(p.capital)}" oninput="obSyncPartnerDraft()"></div>`
+            : `<div class="input-group"><label>درصد سهم (٪)</label><input type="text" inputmode="numeric" data-pidx="${i}" class="ob-partner-percent" value="${esc(p.percent)}" oninput="obSyncPartnerDraft()"></div>`}
+        </div>`).join('');
+}
+function obSyncPartnerDraft() {
+    document.querySelectorAll('.ob-partner-name').forEach(el => { onboardState.partnersDraft[+el.dataset.pidx].name = el.value; });
+    document.querySelectorAll('.ob-partner-capital').forEach(el => { onboardState.partnersDraft[+el.dataset.pidx].capital = el.value; });
+    document.querySelectorAll('.ob-partner-percent').forEach(el => { onboardState.partnersDraft[+el.dataset.pidx].percent = el.value; });
+}
+window.obSyncPartnerDraft = obSyncPartnerDraft;
+function obAddPartnerRow() {
+    obSyncPartnerDraft();
+    onboardState.partnersDraft.push({ name: '', capital: '', percent: '' });
+    renderOnboard();
+}
+window.obAddPartnerRow = obAddPartnerRow;
 
 function obSelectBiz(id) { onboardState.businessType = id; renderOnboard(); }
 window.obSelectBiz = obSelectBiz;
@@ -1103,6 +1163,8 @@ function obCollectStep() {
         onboardState.phone = document.getElementById('ob_phone').value.trim();
     } else if (onboardState.step === 2) {
         onboardState.address = document.getElementById('ob_address').value.trim();
+    } else if (onboardState.step === 3) {
+        if (onboardState.hasPartners) obSyncPartnerDraft();
     } else {
         onboardState.currency = document.getElementById('ob_currency').value;
         onboardState.taxEnabled = document.getElementById('ob_taxEnabled').checked;
@@ -1117,7 +1179,7 @@ function obNext() {
         showToast('لطفاً اسم فروشگاه را وارد کنید', 'error');
         return;
     }
-    if (onboardState.step < 3) {
+    if (onboardState.step < 4) {
         onboardState.step++;
         renderOnboard();
         return;
@@ -1143,13 +1205,26 @@ function finishOnboarding() {
         taxEnabled: onboardState.taxEnabled,
         taxPercent: onboardState.taxPercent,
         invoicePrefix: 'INV',
-        onboarded: true
+        onboarded: true,
+        partnershipMode: onboardState.hasPartners ? onboardState.percentMode : 'none'
     });
     if (onboardState.loadDemo) {
         generateSeedData(onboardState.businessType);
     } else {
         dbWrite(K.products, []); dbWrite(K.customers, []); dbWrite(K.invoices, []);
         dbWrite(K.purchases, []); dbWrite(K.expenses, []); dbWrite(K.cashtx, []);
+    }
+    if (onboardState.hasPartners) {
+        const validPartners = onboardState.partnersDraft.filter(p => p.name.trim());
+        const partners = validPartners.map(p => ({
+            id: uid('ptn'),
+            name: p.name.trim(),
+            capitalToman: onboardState.percentMode === 'auto' ? num(p.capital) : 0,
+            percentManual: onboardState.percentMode === 'manual' ? num(p.percent) : null,
+            joinDate: todayISO(),
+            note: ''
+        }));
+        dbWrite(K.partners, partners);
     }
     document.getElementById('onboardOverlay').hidden = true;
     refreshBrandChip();
@@ -1666,6 +1741,14 @@ function openProductEditor(id) {
 }
 window.openProductEditor = openProductEditor;
 
+let _productCreateForPurchaseIdx = null;
+function openNewProductForPurchase(idx) {
+    _productCreateForPurchaseIdx = idx;
+    closeModal();
+    openProductEditor();
+}
+window.openNewProductForPurchase = openNewProductForPurchase;
+
 function saveProduct(id) {
     const name = document.getElementById('pf_name').value.trim();
     const sell = num(document.getElementById('pf_sell').value);
@@ -1682,14 +1765,29 @@ function saveProduct(id) {
         qty: num(document.getElementById('pf_qty').value),
         minQty: num(document.getElementById('pf_minqty').value)
     };
+    let created = null;
     if (id) {
         const idx = list.findIndex(p => p.id === id);
         if (idx > -1) list[idx] = Object.assign(list[idx], data);
     } else {
-        list.push(Object.assign({ id: uid('p'), createdAt: todayISO() }, data));
+        created = Object.assign({ id: uid('p'), createdAt: todayISO() }, data);
+        list.push(created);
     }
     dbWrite(K.products, list);
     autoBackupTick();
+
+    // Special case: this product was created from inside the "خرید از تأمین‌کننده" flow
+    // (buying a brand-new item straight from the supplier) — wire it into that purchase row.
+    if (created && _productCreateForPurchaseIdx !== null) {
+        const idx = _productCreateForPurchaseIdx;
+        _productCreateForPurchaseIdx = null;
+        draftPurchase.items[idx] = { productId: created.id, name: created.name, qty: draftPurchase.items[idx] ? (draftPurchase.items[idx].qty || 1) : 1, price: created.buyPrice };
+        closeModal();
+        showToast('کالای جدید ثبت و به این خرید اضافه شد', 'success');
+        rerenderPurchaseNew();
+        return;
+    }
+
     closeModal();
     showToast('کالا ذخیره شد', 'success');
     switchView('products');
@@ -1887,7 +1985,7 @@ function renderInvoiceEditorPage() {
     const afterDiscount = Math.max(0, subtotal - num(d.discountTotal));
     const settings = getSettings();
     const taxAmount = settings.taxEnabled ? Math.round(afterDiscount * (num(settings.taxPercent) || 0) / 100) : num(d.taxAmount) || 0;
-    const interestAmount = d.paymentMethod === 'credit' ? creditInterestAmount(afterDiscount + taxAmount, d.paymentDetails) : 0;
+    const interestAmount = d.paymentMethod === 'credit' || (d && d.paymentMethod === 'check') ? creditInterestAmount(afterDiscount + taxAmount, d.paymentDetails) : 0;
     const total = afterDiscount + (settings.taxEnabled ? taxAmount : 0) + interestAmount;
 
     return `
@@ -1943,7 +2041,37 @@ function renderInvoiceEditorPage() {
 }
 VIEW_RENDERERS.invoiceNew = renderInvoiceEditorPage;
 
-function diSetType(t) { draftInvoice.invoiceType = t; rerenderIfActive('invoiceNew'); }
+function syncInvoiceDraftFromDom() {
+    const custEl = document.getElementById('if_customer');
+    if (custEl) draftInvoice.customerId = custEl.value || null;
+    const dateIso = getJalaliInputISO('if_date');
+    if (dateIso) draftInvoice.date = dateIso;
+    const pmEl = document.getElementById('if_paymethod');
+    if (pmEl) { draftInvoice.paymentMethod = pmEl.value; draftInvoice.paymentDetails = paymentDetailsCollect('if', pmEl.value); }
+    const discEl = document.getElementById('if_discount');
+    if (discEl) draftInvoice.discountTotal = num(discEl.value);
+    const paidEl = document.getElementById('if_paid');
+    if (paidEl) draftInvoice.paidAmount = num(paidEl.value);
+    const noteEl = document.getElementById('if_note');
+    if (noteEl) draftInvoice.note = noteEl.value;
+}
+function rerenderInvoiceNew() { syncInvoiceDraftFromDom(); rerenderIfActive('invoiceNew'); }
+window.rerenderInvoiceNew = rerenderInvoiceNew;
+
+function syncPurchaseDraftFromDom() {
+    const supEl = document.getElementById('pf_supplier');
+    if (supEl) draftPurchase.supplier = supEl.value;
+    const dateIso = getJalaliInputISO('pf_date');
+    if (dateIso) draftPurchase.date = dateIso;
+    const pmEl = document.getElementById('pf_paymethod');
+    if (pmEl) { draftPurchase.paymentMethod = pmEl.value; draftPurchase.paymentDetails = paymentDetailsCollect('pf', pmEl.value); }
+    const paidEl = document.getElementById('pf_paid');
+    if (paidEl) draftPurchase.paidAmount = num(paidEl.value);
+}
+function rerenderPurchaseNew() { syncPurchaseDraftFromDom(); rerenderIfActive('purchaseNew'); }
+window.rerenderPurchaseNew = rerenderPurchaseNew;
+
+function diSetType(t) { syncInvoiceDraftFromDom(); draftInvoice.invoiceType = t; rerenderIfActive('invoiceNew'); }
 window.diSetType = diSetType;
 
 function invoiceTotalsHtml(subtotal, discount, tax, total, paid, interest) {
@@ -1987,7 +2115,23 @@ function paymentDetailsHtml(prefix, method, pd, allowExisting) {
     }
     if (method === 'check') {
         const availableChecks = dbRead(K.checks).filter(c => c.direction === 'receive' && c.status === 'pending' && !c.endorsedTo);
+        const ledger = treasuryLedger();
+        const cashBalance = ledger.reduce((sum, t) => sum + (t.type === 'in' ? num(t.amount) : -num(t.amount)), 0);
+        const upcomingPayChecks = dbRead(K.checks).filter(c => c.status === 'pending' && c.direction === 'pay').sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
         return `<div class="pm-detail-box">
+            <div class="bank-account-card" style="margin-bottom:10px;">
+                <div><div class="bac-name">موجودی فعلی صندوق نقدی</div><div class="bac-sub">${upcomingPayChecks.length.toLocaleString(localeForDigits())} چک پرداختی در انتظار پاس شدن</div></div>
+                <div class="list-item-title" style="color:${cashBalance >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${moneyPlain(cashBalance)}</div>
+            </div>
+            ${upcomingPayChecks.length ? `<div style="max-height:140px; overflow-y:auto; margin-bottom:10px;">
+                ${upcomingPayChecks.map(c => {
+                    const days = Math.round((new Date(c.dueDate) - new Date()) / 86400000);
+                    return `<div class="list-item" style="padding:8px 10px;"><div class="list-item-row">
+                        <div><div class="list-item-title" style="font-size:0.8rem;">${esc(c.who)}</div><div class="txt-caption">سررسید: ${fmtDate(c.dueDate)} · ${days >= 0 ? days.toLocaleString(localeForDigits()) + ' روز مانده' : 'سررسید گذشته'}</div></div>
+                        <div class="txt-caption" style="font-weight:700;">${moneyPlain(c.amount)}</div>
+                    </div></div>`;
+                }).join('')}
+            </div>` : ''}
             ${allowExisting ? `<div class="input-group"><label>منبع چک</label>
                 <select id="${prefix}_ckSource" onchange="ckSourceChange('${prefix}')">
                     <option value="new" ${pd.source !== 'existing' ? 'selected' : ''}>ثبت چک جدید</option>
@@ -2012,6 +2156,24 @@ function paymentDetailsHtml(prefix, method, pd, allowExisting) {
                         ${availableChecks.map(c => `<option value="${c.id}" ${pd.existingCheckId === c.id ? 'selected' : ''}>${esc(c.who)} — ${moneyPlain(c.amount)} — سررسید ${fmtDate(c.dueDate)}${c.number ? ' — #' + esc(c.number) : ''}</option>`).join('')}
                     </select>
                     ${!availableChecks.length ? `<p class="txt-caption">چک دریافتیِ در دسترسی برای واگذاری موجود نیست.</p>` : ''}
+                </div>
+            </div>
+            <div class="settings-row" style="padding-inline:0; margin-top:8px;">
+                <div class="settings-row-label">این چک بابت نسیه است و سود ماهانه دارد</div>
+                <label class="switch"><input type="checkbox" id="${prefix}_ckHasInterest" ${num(pd.monthlyPercent) ? 'checked' : ''} onchange="document.getElementById('${prefix}_ckInterestBox').style.display=this.checked?'block':'none'; ${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}"><span class="switch-slider"></span></label>
+            </div>
+            <div class="pm-detail-box" id="${prefix}_ckInterestBox" style="display:${num(pd.monthlyPercent) ? 'block' : 'none'};">
+                <div class="input-group"><label>سود نسیه (٪ در ماه)</label><input type="text" inputmode="numeric" id="${prefix}_ckPercent" value="${esc(num(pd.monthlyPercent) || 0)}" oninput="${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}"></div>
+                <div class="input-group"><label>گرد کردن مدت</label>
+                    <select id="${prefix}_ckRound" onchange="${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}">
+                        <option value="none" ${(!pd.roundMode || pd.roundMode === 'none') ? 'selected' : ''}>بدون گرد کردن (دقیق به روز)</option>
+                        <option value="up" ${pd.roundMode === 'up' ? 'selected' : ''}>گرد به بالا</option>
+                        <option value="down" ${pd.roundMode === 'down' ? 'selected' : ''}>گرد به پایین</option>
+                    </select>
+                </div>
+                <div class="settings-row" style="padding-inline:0;">
+                    <div class="settings-row-label">سود مرکب</div>
+                    <label class="switch"><input type="checkbox" id="${prefix}_ckCompound" ${pd.compound ? 'checked' : ''} onchange="${prefix === 'if' ? 'diRecalc()' : 'dpRecalc()'}"><span class="switch-slider"></span></label>
                 </div>
             </div>
         </div>`;
@@ -2054,24 +2216,30 @@ function paymentDetailsCollect(prefix, method) {
     if (method === 'check') {
         const sourceEl = document.getElementById(prefix + '_ckSource');
         const source = sourceEl ? sourceEl.value : 'new';
+        const hasInterest = !!(document.getElementById(prefix + '_ckHasInterest') || {}).checked;
+        const interestFields = hasInterest ? {
+            monthlyPercent: num((document.getElementById(prefix + '_ckPercent') || {}).value),
+            roundMode: ((document.getElementById(prefix + '_ckRound') || {}).value) || 'none',
+            compound: !!(document.getElementById(prefix + '_ckCompound') || {}).checked
+        } : { monthlyPercent: 0, roundMode: 'none', compound: false };
         if (source === 'existing') {
             const existingId = (document.getElementById(prefix + '_ckExistingId') || {}).value || '';
             const existing = existingId ? dbRead(K.checks).find(c => c.id === existingId) : null;
-            return {
+            return Object.assign({
                 source: 'existing', existingCheckId: existingId,
                 checkNumber: existing ? existing.number : '', bank: existing ? existing.bank : '',
                 accountNo: existing ? existing.accountNo : '', sayadNo: existing ? existing.sayadNo : '',
                 dueDate: existing ? existing.dueDate : ''
-            };
+            }, interestFields);
         }
-        return {
+        return Object.assign({
             source: 'new',
             checkNumber: ((document.getElementById(prefix + '_ckNumber') || {}).value || '').trim(),
             bank: ((document.getElementById(prefix + '_ckBank') || {}).value || '').trim(),
             accountNo: ((document.getElementById(prefix + '_ckAccNo') || {}).value || '').trim(),
             sayadNo: ((document.getElementById(prefix + '_ckSayad') || {}).value || '').trim(),
             dueDate: getJalaliInputISO(prefix + '_ckDue')
-        };
+        }, interestFields);
     }
     if (method === 'credit') {
         return { dueDate: getJalaliInputISO(prefix + '_crDue'), monthlyPercent: num((document.getElementById(prefix + '_crPercent') || {}).value), roundMode: ((document.getElementById(prefix + '_crRound') || {}).value) || 'none', compound: !!(document.getElementById(prefix + '_crCompound') || {}).checked };
@@ -2135,7 +2303,7 @@ function renderItemPicker() {
         </div>
         <div id="pickerList" style="max-height:38vh; overflow-y:auto;"></div>
         <div class="action-grid" style="margin-top:12px;">
-            <button class="btn-action" onclick="openConsignmentForm()" type="button">★ کالای امانی از همکار</button>
+            ${pickerState.kind === 'purchase' ? `<button class="btn-action" onclick="openNewProductForPurchase(pickerState.idx)" type="button">🆕 کالای جدید (ثبت در انبار)</button>` : `<button class="btn-action" onclick="openConsignmentForm()" type="button">★ کالای امانی از همکار</button>`}
             <button class="btn-action" onclick="pickerFreeText()" type="button">✎ کالای متفرقه (تایپ آزاد)</button>
         </div>
     `;
@@ -2169,10 +2337,10 @@ function pickerChoose(productId) {
     if (!prod) return;
     if (pickerState.kind === 'sale') {
         draftInvoice.items[pickerState.idx] = { productId: prod.id, name: prod.name, qty: draftInvoice.items[pickerState.idx].qty || 1, price: prod.sellPrice, discount: 0 };
-        closeModal(); rerenderIfActive('invoiceNew');
+        closeModal(); rerenderInvoiceNew();
     } else {
         draftPurchase.items[pickerState.idx] = { productId: prod.id, name: prod.name, qty: draftPurchase.items[pickerState.idx].qty || 1, price: prod.buyPrice };
-        closeModal(); rerenderIfActive('purchaseNew');
+        closeModal(); rerenderPurchaseNew();
     }
 }
 window.pickerChoose = pickerChoose;
@@ -2182,10 +2350,10 @@ function pickerFreeText() {
     if (!name) return;
     if (pickerState.kind === 'sale') {
         draftInvoice.items[pickerState.idx] = Object.assign(draftInvoice.items[pickerState.idx] || {}, { productId: '', name, isConsignment: false });
-        closeModal(); rerenderIfActive('invoiceNew');
+        closeModal(); rerenderInvoiceNew();
     } else {
         draftPurchase.items[pickerState.idx] = Object.assign(draftPurchase.items[pickerState.idx] || {}, { productId: '', name, isConsignment: false });
-        closeModal(); rerenderIfActive('purchaseNew');
+        closeModal(); rerenderPurchaseNew();
     }
 }
 window.pickerFreeText = pickerFreeText;
@@ -2212,8 +2380,8 @@ function saveConsignmentItem() {
     const price = num(document.getElementById('cg_price').value);
     if (!colleagueName || !name) { showToast('نام همکار و نام کالا الزامی است', 'error'); return; }
     const item = { productId: '', name, qty, price, discount: 0, isConsignment: true, colleagueName, consignmentDate: todayISO() };
-    if (pickerState.kind === 'sale') { draftInvoice.items[pickerState.idx] = item; closeModal(); rerenderIfActive('invoiceNew'); }
-    else { draftPurchase.items[pickerState.idx] = item; closeModal(); rerenderIfActive('purchaseNew'); }
+    if (pickerState.kind === 'sale') { draftInvoice.items[pickerState.idx] = item; closeModal(); rerenderInvoiceNew(); }
+    else { draftPurchase.items[pickerState.idx] = item; closeModal(); rerenderPurchaseNew(); }
 }
 window.saveConsignmentItem = saveConsignmentItem;
 
@@ -2250,12 +2418,14 @@ function diUpdate(idx, field, value) {
     if (field === 'qty' || field === 'price') draftInvoice.items[idx][field] = num(value);
     else draftInvoice.items[idx][field] = value;
     diRecalc(true);
+    diApplyAutoPaid();
 }
 window.diUpdate = diUpdate;
 
-function diAddRow() { draftInvoice.items.push({ productId: '', name: '', qty: 1, price: 0, discount: 0 }); rerenderIfActive('invoiceNew'); }
+function diAddRow() { syncInvoiceDraftFromDom(); draftInvoice.items.push({ productId: '', name: '', qty: 1, price: 0, discount: 0 }); rerenderIfActive('invoiceNew'); }
 window.diAddRow = diAddRow;
 function diRemoveRow(idx) {
+    syncInvoiceDraftFromDom();
     draftInvoice.items.splice(idx, 1);
     if (!draftInvoice.items.length) draftInvoice.items.push({ productId: '', name: '', qty: 1, price: 0, discount: 0 });
     rerenderIfActive('invoiceNew');
@@ -2272,8 +2442,8 @@ function diRecalc(skipFullRender) {
     const tax = settings.taxEnabled ? Math.round(afterDiscount * (num(settings.taxPercent) || 0) / 100) : 0;
     const methodEl = document.getElementById('if_paymethod');
     const method = methodEl ? methodEl.value : (draftInvoice.paymentMethod || 'cash');
-    const pd = method === 'credit' ? paymentDetailsCollect('if', 'credit') : null;
-    const interest = method === 'credit' ? creditInterestAmount(afterDiscount + tax, pd) : 0;
+    const pd = (method === 'credit' || method === 'check') ? paymentDetailsCollect('if', method) : null;
+    const interest = (method === 'credit' || method === 'check') ? creditInterestAmount(afterDiscount + tax, pd) : 0;
     const total = afterDiscount + tax + interest;
     const box = document.getElementById('invoiceTotalsBox');
     if (box) box.innerHTML = invoiceTotalsHtml(subtotal, discount, tax, total, paid, interest);
@@ -2292,8 +2462,30 @@ function diOnPaymentMethodChange() {
     const box = document.getElementById('if_paymentDetailsBox');
     if (box) box.innerHTML = paymentDetailsHtml('if', method, method === draftInvoice.paymentMethod ? draftInvoice.paymentDetails : {}, false);
     diRecalc();
+    diApplyAutoPaid();
 }
 window.diOnPaymentMethodChange = diOnPaymentMethodChange;
+function diApplyAutoPaid() {
+    const methodEl = document.getElementById('if_paymethod');
+    const paidEl = document.getElementById('if_paid');
+    if (!methodEl || !paidEl) return;
+    const method = methodEl.value;
+    if (method === 'cash' || method === 'card') {
+        const subtotal = draftInvoice.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
+        const discount = num((document.getElementById('if_discount') || {}).value);
+        const afterDiscount = Math.max(0, subtotal - discount);
+        const settings = getSettings();
+        const tax = settings.taxEnabled ? Math.round(afterDiscount * (num(settings.taxPercent) || 0) / 100) : 0;
+        paidEl.value = afterDiscount + tax;
+        paidEl.readOnly = true;
+        paidEl.title = 'در پرداخت نقدی/کارتی، مبلغ به‌طور کامل و همان لحظه دریافت می‌شود';
+        diRecalc();
+    } else {
+        paidEl.readOnly = false;
+        paidEl.title = '';
+    }
+}
+window.diApplyAutoPaid = diApplyAutoPaid;
 
 function adjustStock(items, sign) {
     const products = dbRead(K.products);
@@ -2319,7 +2511,7 @@ function saveInvoice() {
     const afterDiscount = Math.max(0, subtotal - discountTotal);
     const settings = getSettings();
     const taxAmount = settings.taxEnabled ? Math.round(afterDiscount * (num(settings.taxPercent) || 0) / 100) : 0;
-    const interestAmount = paymentMethod === 'credit' ? creditInterestAmount(afterDiscount + taxAmount, paymentDetails) : 0;
+    const interestAmount = paymentMethod === 'credit' || paymentMethod === 'check' ? creditInterestAmount(afterDiscount + taxAmount, paymentDetails) : 0;
     const total = afterDiscount + taxAmount + interestAmount;
     const paidAmount = Math.min(total, num(document.getElementById('if_paid').value));
     const status = paidAmount >= total && total > 0 ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
@@ -2597,7 +2789,7 @@ function renderPurchaseEditorPage() {
         </div>
     `).join('');
     const rawTotal = d.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
-    const interestAmount = d.paymentMethod === 'credit' ? creditInterestAmount(rawTotal, d.paymentDetails) : 0;
+    const interestAmount = d.paymentMethod === 'credit' || (d && d.paymentMethod === 'check') ? creditInterestAmount(rawTotal, d.paymentDetails) : 0;
     const total = rawTotal + interestAmount;
 
     return `
@@ -2647,13 +2839,14 @@ function dpCurrentInterest() {
     const rawTotal = draftPurchase.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
     const methodEl = document.getElementById('pf_paymethod');
     const method = methodEl ? methodEl.value : (draftPurchase.paymentMethod || 'cash');
-    const pd = method === 'credit' ? paymentDetailsCollect('pf', 'credit') : null;
+    const pd = (method === 'credit' || method === 'check') ? paymentDetailsCollect('pf', method) : null;
     const infoEl = document.getElementById('pf_crInfo');
     if (infoEl && method === 'credit') infoEl.textContent = creditInterestBreakdownText(pd);
-    return method === 'credit' ? creditInterestAmount(rawTotal, pd) : 0;
+    return (method === 'credit' || method === 'check') ? creditInterestAmount(rawTotal, pd) : 0;
 }
 function dpUpdate(idx, field, value) {
     draftPurchase.items[idx][field] = (field === 'qty' || field === 'price') ? num(value) : value;
+    dpApplyAutoPaid();
     const rawTotal = draftPurchase.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
     const interest = dpCurrentInterest();
     const paidEl = document.getElementById('pf_paid');
@@ -2666,9 +2859,10 @@ function dpUpdate(idx, field, value) {
     });
 }
 window.dpUpdate = dpUpdate;
-function dpAddRow() { draftPurchase.items.push({ productId: '', name: '', qty: 1, price: 0 }); rerenderIfActive('purchaseNew'); }
+function dpAddRow() { syncPurchaseDraftFromDom(); draftPurchase.items.push({ productId: '', name: '', qty: 1, price: 0 }); rerenderIfActive('purchaseNew'); }
 window.dpAddRow = dpAddRow;
 function dpRemoveRow(idx) {
+    syncPurchaseDraftFromDom();
     draftPurchase.items.splice(idx, 1);
     if (!draftPurchase.items.length) draftPurchase.items.push({ productId: '', name: '', qty: 1, price: 0 });
     rerenderIfActive('purchaseNew');
@@ -2686,8 +2880,26 @@ function dpOnPaymentMethodChange() {
     const box = document.getElementById('pf_paymentDetailsBox');
     if (box) box.innerHTML = paymentDetailsHtml('pf', method, method === draftPurchase.paymentMethod ? draftPurchase.paymentDetails : {});
     dpRecalc();
+    dpApplyAutoPaid();
 }
 window.dpOnPaymentMethodChange = dpOnPaymentMethodChange;
+function dpApplyAutoPaid() {
+    const methodEl = document.getElementById('pf_paymethod');
+    const paidEl = document.getElementById('pf_paid');
+    if (!methodEl || !paidEl) return;
+    const method = methodEl.value;
+    if (method === 'cash' || method === 'card') {
+        const rawTotal = draftPurchase.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
+        paidEl.value = rawTotal;
+        paidEl.readOnly = true;
+        paidEl.title = 'در پرداخت نقدی/کارتی، مبلغ به‌طور کامل و همان لحظه پرداخت می‌شود';
+        dpRecalc();
+    } else {
+        paidEl.readOnly = false;
+        paidEl.title = '';
+    }
+}
+window.dpApplyAutoPaid = dpApplyAutoPaid;
 function openSupplierPicker() {
     const suppliers = Array.from(new Set(dbRead(K.purchases).map(p => p.supplier).filter(Boolean))).sort();
     const html = suppliers.length ? suppliers.map(s => `<div class="list-item" style="cursor:pointer;" onclick="pickSupplier('${esc(s).replace(/'/g, "\\'")}')">${esc(s)}</div>`).join('') : `<div class="empty-state">هنوز تأمین‌کننده‌ای ثبت نشده؛ برای اولین بار نام را تایپ کنید.</div>`;
@@ -2720,7 +2932,7 @@ function savePurchase() {
     const items = draftPurchase.items.filter(it => (it.name || it.productId) && num(it.qty) > 0);
     if (!items.length) { showToast('حداقل یک ردیف کالا وارد کنید', 'error'); return; }
     const rawTotal = items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
-    const interestAmount = paymentMethod === 'credit' ? creditInterestAmount(rawTotal, paymentDetails) : 0;
+    const interestAmount = paymentMethod === 'credit' || paymentMethod === 'check' ? creditInterestAmount(rawTotal, paymentDetails) : 0;
     const total = rawTotal + interestAmount;
     const paidAmount = Math.min(total, num(document.getElementById('pf_paid').value));
     const status = paidAmount >= total && total > 0 ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
@@ -3321,23 +3533,27 @@ const firebaseConfig = {
 let fbAuth = null, fbDb = null, fbUser = null, _cloudSyncTimer = null;
 function initFirebase() {
     try {
-        if (typeof firebase === 'undefined') return; // CDN blocked/offline — app still fully works locally
+        if (typeof firebase === 'undefined') { setCloudStatus('signedout'); return; } // CDN blocked/offline — app still fully works locally
         firebase.initializeApp(firebaseConfig);
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
         fbAuth.onAuthStateChanged(onCloudAuthChange);
-    } catch (e) { /* ignore — cloud sync is optional, local storage always works */ }
+        window.addEventListener('online', () => { if (fbUser) setCloudStatus('synced'); });
+        window.addEventListener('offline', () => { if (fbUser) setCloudStatus('error'); });
+    } catch (e) { setCloudStatus('signedout'); }
 }
 function onCloudAuthChange(user) {
     const wasSignedOut = !fbUser;
     fbUser = user;
+    refreshCloudStatusChip();
     if (currentView === 'settings' || currentView === 'backup') rerenderIfActive(currentView);
-    if (user && wasSignedOut) offerCloudSyncChoice();
+    if (user && wasSignedOut) autoReconcileCloud();
 }
 function signInWithGoogle() {
     if (!fbAuth) { showToast('اتصال به گوگل برقرار نشد؛ اتصال اینترنت را بررسی کنید', 'error'); return; }
     const provider = new firebase.auth.GoogleAuthProvider();
-    fbAuth.signInWithPopup(provider).catch((e) => showToast('ورود ناموفق بود: ' + (e.message || ''), 'error'));
+    setCloudStatus('syncing');
+    fbAuth.signInWithPopup(provider).catch((e) => { setCloudStatus('error'); showToast('ورود ناموفق بود: ' + (e.message || ''), 'error'); });
 }
 window.signInWithGoogle = signInWithGoogle;
 function signOutCloud() {
@@ -3358,45 +3574,40 @@ function applyImportedData(data) {
 function cloudDocRef() { return fbDb.collection('backups').doc(fbUser.uid); }
 function pushToCloud() {
     if (!fbUser || !fbDb) return Promise.resolve();
+    setCloudStatus('syncing');
     const data = collectFullExportData();
-    return cloudDocRef().set({ data: JSON.stringify(data), updatedAt: todayISO(), email: fbUser.email })
-        .then(() => { localStorage.setItem('ap_last_cloud_sync', todayISO()); })
-        .catch(() => {});
+    const nowIso = todayISO();
+    return cloudDocRef().set({ data: JSON.stringify(data), updatedAt: nowIso, email: fbUser.email })
+        .then(() => { localStorage.setItem('ap_last_cloud_sync', nowIso); setCloudStatus('synced'); })
+        .catch(() => { setCloudStatus('error'); });
 }
-function offerCloudSyncChoice() {
+/* No-questions-asked reconciliation on sign-in: whichever copy (local device vs cloud) was
+   modified more recently automatically wins — no prompt, exactly as requested. A brand-new
+   device (no local data yet) will always have an older/blank local timestamp, so it correctly
+   pulls the cloud copy right away with zero clicks. */
+function autoReconcileCloud() {
+    setCloudStatus('syncing');
     cloudDocRef().get().then((snap) => {
-        if (!snap.exists) { pushToCloud(); showToast('اطلاعات این دستگاه برای اولین‌بار در حساب گوگل شما ذخیره شد', 'success'); return; }
+        if (!snap.exists) { pushToCloud(); return; }
         const cloudUpdated = (snap.data() || {}).updatedAt;
-        const html = `
-            <p class="txt-body" style="color:var(--text-secondary); line-height:1.9; margin-bottom:14px;">
-                یک نسخه از اطلاعات شما قبلاً روی حساب گوگل ذخیره شده (آخرین به‌روزرسانی: ${cloudUpdated ? fmtDateTime(cloudUpdated) : '-'}). کدام نسخه معتبر است؟
-            </p>
-            <div class="action-grid">
-                <button class="btn-action" onclick="pullFromCloudConfirmed()">⬇ دریافت از سرور<br><span class="txt-caption">اطلاعات این دستگاه با نسخه ابری جایگزین می‌شود</span></button>
-                <button class="calc-btn" onclick="pushToCloudConfirmed()">⬆ آپلود این دستگاه<br><span class="txt-caption">نسخه ابری با اطلاعات این دستگاه جایگزین می‌شود</span></button>
-            </div>`;
-        openModal('همگام‌سازی با حساب گوگل', html);
-    }).catch(() => {});
+        const localUpdated = localStorage.getItem('ap_local_last_modified') || '1970-01-01T00:00:00.000Z';
+        if (cloudUpdated && new Date(cloudUpdated) > new Date(localUpdated)) {
+            try {
+                const data = JSON.parse((snap.data() || {}).data || '{}');
+                applyImportedData(data);
+                localStorage.setItem('ap_last_cloud_sync', todayISO());
+                showToast('اطلاعات از حساب گوگل شما دریافت شد', 'success');
+                setTimeout(() => location.reload(), 700);
+            } catch (e) { setCloudStatus('error'); }
+        } else {
+            pushToCloud();
+        }
+    }).catch(() => setCloudStatus('error'));
 }
-function pullFromCloudConfirmed() {
-    cloudDocRef().get().then((snap) => {
-        if (!snap.exists) return;
-        try {
-            const data = JSON.parse((snap.data() || {}).data || '{}');
-            applyImportedData(data);
-            closeModal();
-            showToast('اطلاعات از سرور دریافت شد', 'success');
-            setTimeout(() => location.reload(), 900);
-        } catch (e) { showToast('خطا در دریافت اطلاعات ابری', 'error'); }
-    });
-}
-window.pullFromCloudConfirmed = pullFromCloudConfirmed;
-function pushToCloudConfirmed() {
-    pushToCloud().then(() => { closeModal(); showToast('این دستگاه با موفقیت روی سرور آپلود شد', 'success'); });
-}
-window.pushToCloudConfirmed = pushToCloudConfirmed;
 function cloudSyncTick() {
+    try { localStorage.setItem('ap_local_last_modified', todayISO()); } catch (e) {}
     if (!fbUser) return;
+    setCloudStatus('syncing');
     clearTimeout(_cloudSyncTimer);
     _cloudSyncTimer = setTimeout(() => { pushToCloud(); }, 1500);
 }
@@ -3404,6 +3615,34 @@ function manualCloudSync() {
     if (!fbUser) { showToast('ابتدا با گوگل وارد شوید', 'error'); return; }
     pushToCloud().then(() => showToast('همگام‌سازی انجام شد', 'success'));
 }
+window.manualCloudSync = manualCloudSync;
+
+/* Cloud status chip in the top nav — always visible: shows sign-in button when signed out,
+   or the user's photo + a colored dot (green = synced, purple blinking = syncing, red = offline/error). */
+function setCloudStatus(status) {
+    const chip = document.getElementById('cloudStatusChip');
+    if (!chip) return;
+    chip.setAttribute('data-status', status);
+    const label = document.getElementById('cloudStatusLabel');
+    if (label) label.textContent = status === 'signedout' ? 'ورود با گوگل' : status === 'syncing' ? 'در حال همگام‌سازی…' : status === 'error' ? 'قطع ارتباط' : 'همگام‌سازی‌شده';
+}
+function refreshCloudStatusChip() {
+    const avatar = document.getElementById('cloudUserAvatar');
+    const label = document.getElementById('cloudStatusLabel');
+    if (!avatar || !label) return;
+    if (fbUser) {
+        if (fbUser.photoURL) { avatar.src = fbUser.photoURL; avatar.style.display = 'block'; } else { avatar.style.display = 'none'; }
+        setCloudStatus(navigator.onLine === false ? 'error' : 'synced');
+    } else {
+        avatar.style.display = 'none';
+        setCloudStatus('signedout');
+    }
+}
+function onCloudChipClick() {
+    if (!fbUser) { signInWithGoogle(); return; }
+    switchView('settings');
+}
+window.onCloudChipClick = onCloudChipClick;
 window.manualCloudSync = manualCloudSync;
 
 const CASHBOX_TYPES = [['cash', 'صندوق نقدی مغازه'], ['pos', 'دستگاه کارت‌خوان'], ['bank', 'حساب بانکی'], ['check', 'چک']];
@@ -4192,38 +4431,98 @@ VIEW_RENDERERS.settlements = renderSettlements;
    contributions; each partner's profit share is proportional to their share
    of total capital.
    ------------------------------------------------------------------------- */
-function computeStoreNetProfit() {
+function computeStoreNetProfit(fromDate, toDate) {
     const invoices = dbRead(K.invoices), expenses = dbRead(K.expenses), products = dbRead(K.products);
+    const inRange = (d) => (!fromDate || new Date(d) >= new Date(fromDate)) && (!toDate || new Date(d) < new Date(toDate));
     const invoiceCogs = (inv) => inv.items.reduce((s2, it) => { const p = products.find(x => x.id === it.productId); return s2 + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
-    const totalSales = invoices.reduce((s, i) => s + num(i.total), 0);
-    const totalCOGS = invoices.reduce((s, i) => s + invoiceCogs(i), 0);
-    const totalExpenses = expenses.reduce((s, e) => s + num(e.amount), 0);
-    const totalPayroll = dbRead(K.payroll).reduce((s, p) => s + num(p.amount), 0);
+    const invIn = invoices.filter(i => inRange(i.date));
+    const expIn = expenses.filter(e => inRange(e.date));
+    const payIn = dbRead(K.payroll).filter(p => inRange(p.date));
+    const totalSales = invIn.reduce((s, i) => s + num(i.total), 0);
+    const totalCOGS = invIn.reduce((s, i) => s + invoiceCogs(i), 0);
+    const totalExpenses = expIn.reduce((s, e) => s + num(e.amount), 0);
+    const totalPayroll = payIn.reduce((s, p) => s + num(p.amount), 0);
     return totalSales - totalCOGS - totalExpenses - totalPayroll;
+}
+function earliestActivityDate() {
+    const dates = [];
+    dbRead(K.invoices).forEach(i => dates.push(i.date));
+    dbRead(K.purchases).forEach(p => dates.push(p.date));
+    dbRead(K.expenses).forEach(e => dates.push(e.date));
+    dbRead(K.cashtx).forEach(t => dates.push(t.date));
+    if (!dates.length) { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString(); }
+    return dates.sort((a, b) => new Date(a) - new Date(b))[0];
+}
+/* Era-based profit split: partners only share in profit generated from their own join date
+   onward. We slice store history into eras at each distinct partner join date, and within each
+   era split that era's profit only among the partners who had already joined by then. */
+function computePartnerShares() {
+    const partners = dbRead(K.partners);
+    const shares = {};
+    partners.forEach(p => { shares[p.id] = 0; });
+    if (!partners.length) return shares;
+    const s = getSettings();
+    const mode = s.partnershipMode || 'auto';
+    const boundaries = Array.from(new Set(partners.map(p => p.joinDate))).sort((a, b) => new Date(a) - new Date(b));
+    const now = todayISO();
+    for (let i = 0; i < boundaries.length; i++) {
+        const eraStart = boundaries[i];
+        const eraEnd = boundaries[i + 1] || now;
+        const active = partners.filter(p => new Date(p.joinDate) <= new Date(eraStart));
+        if (!active.length) continue;
+        const eraProfit = computeStoreNetProfit(eraStart, eraEnd);
+        let weights;
+        if (mode === 'manual') {
+            const sum = active.reduce((s2, p) => s2 + num(p.percentManual), 0);
+            weights = sum ? active.map(p => num(p.percentManual) / sum) : active.map(() => 1 / active.length);
+        } else {
+            const sum = active.reduce((s2, p) => s2 + num(p.capitalToman), 0);
+            weights = sum ? active.map(p => num(p.capitalToman) / sum) : active.map(() => 1 / active.length);
+        }
+        active.forEach((p, idx) => { shares[p.id] += eraProfit * weights[idx]; });
+    }
+    return shares;
+}
+function partnerPercentDisplay(p, partners) {
+    const s = getSettings();
+    const mode = s.partnershipMode || 'auto';
+    if (mode === 'manual') return num(p.percentManual);
+    const sum = partners.reduce((s2, x) => s2 + num(x.capitalToman), 0);
+    return sum ? (num(p.capitalToman) / sum * 100) : 0;
 }
 function renderPartners() {
     const partners = dbRead(K.partners);
     const totalCapital = partners.reduce((s, p) => s + num(p.capitalToman), 0);
     const netProfit = computeStoreNetProfit();
+    const shares = computePartnerShares();
+    const s = getSettings();
     return `
     ${viewHeader('مالی', 'شرکا و سهم سود', `${partners.length.toLocaleString(localeForDigits())} شریک · جمع کل سرمایه: ${money(totalCapital)}`, `<button class="nav-btn" onclick="printPartnersList()" title="چاپ"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`)}
     <div class="stat-grid" style="grid-template-columns:1fr;">
-        <div class="stat-card"><div class="stat-val" style="color:${netProfit >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${money(netProfit)}</div><div class="stat-label">سود خالص کل فروشگاه تا امروز (قابل تقسیم)</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:${netProfit >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${money(netProfit)}</div><div class="stat-label">سود خالص کل فروشگاه تا امروز</div></div>
     </div>
+    <div class="input-group">
+        <label>نحوه محاسبه درصد سهم</label>
+        <select id="pt_mode" onchange="savePartnershipMode(this.value)">
+            <option value="auto" ${(s.partnershipMode || 'auto') === 'auto' ? 'selected' : ''}>خودکار بر اساس مبلغ سرمایه هرکس</option>
+            <option value="manual" ${s.partnershipMode === 'manual' ? 'selected' : ''}>دستی — خودم درصد هرکس را مشخص می‌کنم</option>
+        </select>
+    </div>
+    <p class="txt-caption" style="margin-bottom:10px;">هر شریک فقط در سود/زیانی که از «تاریخ ورود» خودش به بعد ایجاد شده سهیم است؛ دوره‌های قبل از ورود او جزو سهمش حساب نمی‌شود.</p>
     <div class="search-bar">
         <div></div>
-        <button class="fab-add" onclick="openPartnerEditor()" title="افزودن شریک">
+        <button class="fab-add" onclick="openAddPartnerWizard()" title="افزودن شریک">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
     </div>
     ${partners.length ? partners.map(p => {
-        const pct = totalCapital ? (num(p.capitalToman) / totalCapital * 100) : 0;
-        const share = netProfit * (pct / 100);
+        const pct = partnerPercentDisplay(p, partners);
+        const share = shares[p.id] || 0;
         return `
         <div class="list-item">
             <div class="list-item-row">
-                <div><div class="list-item-title">${esc(p.name)}</div><div class="list-item-sub">سرمایه: ${moneyPlain(p.capitalToman)} · سهم: ${pct.toFixed(1).replace(/[0-9.]/g, (c) => c === '.' ? '.' : '۰۱۲۳۴۵۶۷۸۹'[c])}٪</div></div>
-                <div style="text-align:left;"><div class="list-item-title" style="color:${share >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${moneyPlain(share)}</div><div class="txt-caption">سهم سود/زیان</div></div>
+                <div><div class="list-item-title">${esc(p.name)}${p.isOwner ? ' <span class="txt-caption">(صاحب فروشگاه)</span>' : ''}</div><div class="list-item-sub">سرمایه: ${moneyPlain(p.capitalToman)} · سهم: ${pct.toFixed(1).replace(/[0-9.]/g, (c) => c === '.' ? '.' : '۰۱۲۳۴۵۶۷۸۹'[c])}٪ · عضو از ${fmtDate(p.joinDate)}</div></div>
+                <div style="text-align:left;"><div class="list-item-title" style="color:${share >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${moneyPlain(share)}</div><div class="txt-caption">سهم سود/زیان (از تاریخ ورود)</div></div>
             </div>
             <div class="action-grid" style="margin-top:8px;">
                 <button class="btn-action" onclick="openPartnerEditor('${p.id}')">ویرایش</button>
@@ -4234,12 +4533,21 @@ function renderPartners() {
     `;
 }
 VIEW_RENDERERS.partners = renderPartners;
+function savePartnershipMode(mode) {
+    saveSettings({ partnershipMode: mode });
+    rerenderIfActive('partners');
+}
+window.savePartnershipMode = savePartnershipMode;
+
 function openPartnerEditor(id) {
     const p = id ? dbRead(K.partners).find(x => x.id === id) : null;
+    const mode = getSettings().partnershipMode || 'auto';
     const html = `
         <div class="input-group"><label>نام شریک *</label><input type="text" id="pt_name" value="${esc(p ? p.name : '')}"></div>
-        <div class="input-group"><label>مبلغ سرمایه (تومان) *</label><input type="text" inputmode="numeric" id="pt_capital" value="${p ? num(p.capitalToman) : ''}" placeholder="0"></div>
-        ${jalaliDateField('pt_date', p ? p.date : todayISO(), 'تاریخ ورود سرمایه')}
+        ${mode === 'manual'
+            ? `<div class="input-group"><label>درصد سهم (٪) *</label><input type="text" inputmode="numeric" id="pt_percent" value="${p ? num(p.percentManual) : ''}" placeholder="0"></div>`
+            : `<div class="input-group"><label>مبلغ سرمایه (تومان) *</label><input type="text" inputmode="numeric" id="pt_capital" value="${p ? num(p.capitalToman) : ''}" placeholder="0"></div>`}
+        ${jalaliDateField('pt_date', p ? p.joinDate : todayISO(), 'تاریخ ورود به شراکت (سود از این تاریخ به بعد حساب می‌شود)')}
         <div class="input-group"><label>یادداشت</label><textarea id="pt_note">${esc(p ? p.note || '' : '')}</textarea></div>
         <button class="calc-btn" onclick="savePartner('${id || ''}')">${p ? 'ذخیره تغییرات' : 'ثبت شریک'}</button>
         ${p ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deletePartner('${id}')">حذف شریک</button>` : ''}
@@ -4249,10 +4557,12 @@ function openPartnerEditor(id) {
 window.openPartnerEditor = openPartnerEditor;
 function savePartner(id) {
     const name = document.getElementById('pt_name').value.trim();
-    const capitalToman = num(document.getElementById('pt_capital').value);
-    if (!name || !capitalToman) { showToast('نام و مبلغ سرمایه را وارد کنید', 'error'); return; }
+    const mode = getSettings().partnershipMode || 'auto';
+    const capitalToman = mode === 'manual' ? 0 : num(document.getElementById('pt_capital').value);
+    const percentManual = mode === 'manual' ? num(document.getElementById('pt_percent').value) : null;
+    if (!name || (mode === 'manual' ? !percentManual : !capitalToman)) { showToast('نام و مقدار سرمایه/درصد را وارد کنید', 'error'); return; }
     const list = dbRead(K.partners);
-    const data = { name, capitalToman, date: getJalaliInputISO('pt_date') || todayISO(), note: document.getElementById('pt_note').value.trim() };
+    const data = { name, capitalToman, percentManual, joinDate: getJalaliInputISO('pt_date') || todayISO(), note: document.getElementById('pt_note').value.trim() };
     if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
     else list.push(Object.assign({ id: uid('ptn') }, data));
     dbWrite(K.partners, list);
@@ -4269,20 +4579,128 @@ function deletePartner(id) {
 window.deletePartner = deletePartner;
 function printPartnersList() {
     const partners = dbRead(K.partners);
-    const totalCapital = partners.reduce((s, p) => s + num(p.capitalToman), 0);
     const netProfit = computeStoreNetProfit();
+    const shares = computePartnerShares();
     const rows = partners.map(p => {
-        const pct = totalCapital ? (num(p.capitalToman) / totalCapital * 100) : 0;
-        const share = netProfit * (pct / 100);
-        return `<tr><td class="text-cell">${esc(p.name)}</td><td>${moneyPlain(p.capitalToman)}</td><td>${pct.toFixed(1)}٪</td><td>${moneyPlain(share)}</td></tr>`;
+        const pct = partnerPercentDisplay(p, partners);
+        const share = shares[p.id] || 0;
+        return `<tr><td class="text-cell">${esc(p.name)}</td><td>${moneyPlain(p.capitalToman)}</td><td>${pct.toFixed(1)}٪</td><td>${fmtDate(p.joinDate)}</td><td>${moneyPlain(share)}</td></tr>`;
     }).join('');
     const html = `${billTemplateOpenTag()}${billHeaderHtml('شرکا و سهم سود')}
-        <table class="bill-table"><thead><tr><th>شریک</th><th>سرمایه</th><th>درصد سهم</th><th>سهم سود/زیان</th></tr></thead><tbody>${rows || '<tr><td colspan="4">-</td></tr>'}</tbody></table>
-        <div class="totals-row grand" style="margin-top:8px;"><span>سود خالص کل قابل تقسیم</span><span>${moneyPlain(netProfit)}</span></div>
+        <table class="bill-table"><thead><tr><th>شریک</th><th>سرمایه</th><th>درصد سهم</th><th>تاریخ ورود</th><th>سهم سود/زیان</th></tr></thead><tbody>${rows || '<tr><td colspan="5">-</td></tr>'}</tbody></table>
+        <div class="totals-row grand" style="margin-top:8px;"><span>سود خالص کل فروشگاه</span><span>${moneyPlain(netProfit)}</span></div>
     </div>${printFooterButton()}`;
     openModal('پیش‌نمایش چاپ — شرکا', html);
 }
 window.printPartnersList = printPartnersList;
+
+/* ---------------------------------------------------------------------------
+   Add-partner wizard: when a solo owner brings in a partner after already
+   trading for a while, we first need to capture the owner's current capital
+   (so era-splitting above has something to anchor the pre-partnership period
+   to), then collect the new partner's contribution in the same cash/currency/
+   gold format used for the store's own initial-capital entry.
+   ------------------------------------------------------------------------- */
+function openAddPartnerWizard() {
+    const hasOwner = dbRead(K.partners).some(p => p.isOwner);
+    if (!hasOwner) renderOwnerCapitalStep(); else renderNewPartnerCapitalStep();
+}
+window.openAddPartnerWizard = openAddPartnerWizard;
+
+function renderOwnerCapitalStep() {
+    const ledger = treasuryLedger();
+    const cashBalance = ledger.reduce((s, t) => s + (t.type === 'in' ? num(t.amount) : -num(t.amount)), 0);
+    const inventoryValue = dbRead(K.products).reduce((s, p) => s + num(p.qty) * num(p.buyPrice), 0);
+    const receivables = dbRead(K.customers).reduce((s, c) => s + customerBalance(c.id), 0);
+    const payables = dbRead(K.purchases).reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0);
+    const assets = dbRead(K.otherAssets);
+    const html = `
+        <p class="txt-body" style="color:var(--text-secondary); margin-bottom:12px; line-height:1.9;">پیش از افزودن اولین شریک، لازم است سرمایه فعلی صاحب فروشگاه محاسبه شود (تا سود دوره‌های قبل از شراکت، فقط سهم او باشد). موارد مورد نظر برای احتساب در سرمایه را انتخاب کنید:</p>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">موجودی صندوق نقدی (${moneyPlain(cashBalance)})</div><label class="switch"><input type="checkbox" class="ow-cap-item" data-val="${cashBalance}" checked><span class="switch-slider"></span></label></div>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">ارزش کالای انبار به قیمت خرید (${moneyPlain(inventoryValue)})</div><label class="switch"><input type="checkbox" class="ow-cap-item" data-val="${inventoryValue}" checked><span class="switch-slider"></span></label></div>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">مطالبات از مشتریان (${moneyPlain(receivables)})</div><label class="switch"><input type="checkbox" class="ow-cap-item" data-val="${receivables}" checked><span class="switch-slider"></span></label></div>
+        <div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">کسر بدهی به تأمین‌کنندگان (−${moneyPlain(payables)})</div><label class="switch"><input type="checkbox" class="ow-cap-item" data-val="${-payables}" checked><span class="switch-slider"></span></label></div>
+        ${assets.map(a => `<div class="settings-row" style="padding-inline:0;"><div class="settings-row-label">${esc(assetLabel(a))}</div><label class="switch"><input type="checkbox" class="ow-cap-item" data-val="${assetToTomanValue(a)}"><span class="switch-slider"></span></label></div>`).join('')}
+        <div class="totals-box" style="margin-top:12px;"><div class="totals-row grand" id="ow_capTotal"><span>جمع سرمایه صاحب فروشگاه</span><span>0</span></div></div>
+        <button class="calc-btn" style="width:100%; margin-top:10px;" onclick="confirmOwnerCapital()">تأیید و افزودن شریک</button>
+    `;
+    openModal('محاسبه سرمایه فعلی صاحب فروشگاه', html);
+    setTimeout(() => {
+        document.querySelectorAll('.ow-cap-item').forEach(el => el.addEventListener('change', refreshOwnerCapTotal));
+        refreshOwnerCapTotal();
+    }, 20);
+}
+function assetToTomanValue(a) {
+    if (a.type === 'currency') return a.rate ? num(a.amount) * num(a.rate) : 0;
+    if (a.type === 'gold') {
+        if (a.goldType === 'coin') return num(a.qty) * num(a.unitPrice);
+        if (a.goldType === 'melted' || a.goldType === 'silver') return num(a.grams) * num(a.pricePerGram);
+        return num(a.customValue);
+    }
+    return 0;
+}
+function refreshOwnerCapTotal() {
+    const total = Array.from(document.querySelectorAll('.ow-cap-item:checked')).reduce((s, el) => s + num(el.dataset.val), 0);
+    const row = document.getElementById('ow_capTotal');
+    if (row) row.innerHTML = `<span>جمع سرمایه صاحب فروشگاه</span><span>${moneyPlain(total)}</span>`;
+}
+window.refreshOwnerCapTotal = refreshOwnerCapTotal;
+function confirmOwnerCapital() {
+    const total = Array.from(document.querySelectorAll('.ow-cap-item:checked')).reduce((s, el) => s + num(el.dataset.val), 0);
+    const list = dbRead(K.partners);
+    list.push({ id: uid('ptn'), name: getSettings().ownerName || 'صاحب فروشگاه', capitalToman: total, percentManual: null, joinDate: earliestActivityDate(), isOwner: true, note: 'محاسبه‌شده خودکار از دارایی‌های موجود' });
+    dbWrite(K.partners, list);
+    autoBackupTick();
+    renderNewPartnerCapitalStep();
+}
+window.confirmOwnerCapital = confirmOwnerCapital;
+function renderNewPartnerCapitalStep() {
+    const html = `
+        <div class="input-group"><label>نام شریک جدید *</label><input type="text" id="np_name" placeholder="نام و نام‌خانوادگی"></div>
+        <div class="input-group"><label>نوع سرمایه‌ای که وارد می‌کند</label>
+            <select id="cap_type" onchange="capOnTypeChange()">
+                <option value="currency">وجه نقد (تومان / ارز خارجی)</option>
+                <option value="gold">طلا / سکه / نقره</option>
+            </select>
+        </div>
+        <div id="cap_box"></div>
+        ${jalaliDateField('np_date', todayISO(), 'تاریخ ورود به شراکت')}
+        <div class="input-group"><label>یادداشت</label><textarea id="np_note"></textarea></div>
+        <button class="calc-btn" style="margin-top:10px;" onclick="saveNewPartnerFromWizard()">ثبت شریک جدید</button>
+    `;
+    openModal('سرمایه شریک جدید', html);
+    setTimeout(capOnTypeChange, 20);
+}
+function computeCapitalEntryTomanValue() {
+    const type = (document.getElementById('cap_type') || {}).value;
+    if (type === 'gold') {
+        const goldType = (document.getElementById('cap_goldType') || {}).value;
+        if (goldType === 'coin') return num((document.getElementById('cap_qty') || {}).value) * num((document.getElementById('cap_unitPrice') || {}).value);
+        if (goldType === 'melted' || goldType === 'silver') return num((document.getElementById('cap_grams') || {}).value) * num((document.getElementById('cap_pricePerGram') || {}).value);
+        return num((document.getElementById('cap_customValue') || {}).value);
+    }
+    // currency
+    const amount = num((document.getElementById('cap_amount') || {}).value);
+    let currency = (document.getElementById('cap_currency') || {}).value;
+    if (currency === '__custom__') currency = (document.getElementById('cap_customCur') || {}).value || 'ارز دلخواه';
+    if (currency === 'تومان') return amount;
+    const rate = num((document.getElementById('cap_rate') || {}).value);
+    return rate ? amount * rate : 0;
+}
+function saveNewPartnerFromWizard() {
+    const name = document.getElementById('np_name').value.trim();
+    if (!name) { showToast('نام شریک را وارد کنید', 'error'); return; }
+    const capitalToman = computeCapitalEntryTomanValue();
+    if (!capitalToman) { showToast('مبلغ/ارزش سرمایه را کامل وارد کنید (برای ارز، نرخ روز هم لازم است)', 'error'); return; }
+    const list = dbRead(K.partners);
+    list.push({ id: uid('ptn'), name, capitalToman, percentManual: null, joinDate: getJalaliInputISO('np_date') || todayISO(), note: document.getElementById('np_note').value.trim() });
+    dbWrite(K.partners, list);
+    autoBackupTick();
+    closeModal();
+    showToast('شریک جدید اضافه شد', 'success');
+    switchView('partners');
+}
+window.saveNewPartnerFromWizard = saveNewPartnerFromWizard;
 
 function openSettleCustomer(customerId) {
     const c = dbRead(K.customers).find(x => x.id === customerId);
@@ -4787,11 +5205,6 @@ function renderBackup() {
         <div class="section-title">تاریخچه پشتیبان روزانه (${log.length.toLocaleString(localeForDigits())} از ${retentionDays.toLocaleString(localeForDigits())} روز مجاز)</div>
         ${log.length ? log.map(l => `<div class="list-item"><div class="list-item-row"><div class="list-item-title">${esc(l.jalaliLabel || l.date)}</div><button class="btn-action" onclick="downloadBackupLogEntry('${esc(l.date)}')">⬇ دانلود</button></div></div>`).join('') : `<div class="empty-state">هنوز نسخه پشتیبان روزانه‌ای ثبت نشده؛ بعد از اولین ثبت اطلاعات ساخته می‌شود.</div>`}
     </div>
-
-    <div class="section-box">
-        <div class="section-title">اتصال آنلاین (گیت‌هاب + ورود با گوگل)</div>
-        <p class="txt-body" style="color:var(--text-secondary);">این نسخه از برنامه کاملاً سمت کاربر (client-side) است و فقط روی همین مرورگر اطلاعات را ذخیره می‌کند. برای میزبانی روی گیت‌هاب و «ورود با گوگل» واقعی (که اطلاعات را بین دستگاه‌های مختلف همگام کند)، نیاز به یک سرویس بک‌اند و احراز هویت (مثل Firebase Authentication + Firestore) است که باید جداگانه و با اطلاعات پروژه/کلید شما تنظیم شود؛ این بخش در نسخه فعلی پیاده‌سازی نشده.</p>
-    </div>
     `;
 }
 VIEW_RENDERERS.backup = renderBackup;
@@ -5051,5 +5464,6 @@ window.onload = function () {
     }
     refreshBackupLogCache();
     initFullscreenButton();
+    refreshCloudStatusChip();
     initFirebase();
 };
