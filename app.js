@@ -2064,6 +2064,7 @@ function renderInvoiceEditorPage() {
     const customers = dbRead(K.customers);
     const d = draftInvoice;
 
+    const hasPartners = dbRead(K.partners).length > 0;
     const itemRows = d.items.map((it, idx) => `
         <div class="item-row ${it.isConsignment ? 'consignment-row' : ''}">
             <button class="item-pick-btn" onclick="openItemPicker('sale', ${idx})" type="button">
@@ -2072,6 +2073,7 @@ function renderInvoiceEditorPage() {
             <input type="text" inputmode="numeric" value="${num(it.qty)}" title="تعداد" oninput="diUpdate(${idx},'qty',this.value)">
             <input type="text" inputmode="numeric" value="${num(it.price)}" title="قیمت واحد" oninput="diUpdate(${idx},'price',this.value)">
             <input type="text" value="${moneyPlain(num(it.qty) * num(it.price))}" title="جمع" disabled>
+            ${hasPartners ? `<button class="item-partner-toggle ${it.excludeFromPartnership ? 'excluded' : ''}" onclick="diToggleItemPartner(${idx})" type="button" title="${it.excludeFromPartnership ? 'این قلم مستثنا از شراکت است — برای اشتراک دوباره کلیک کنید' : 'این قلم با شرکا مشترک است — برای مستثنا کردن کلیک کنید'}">${it.excludeFromPartnership ? '🚫' : '🤝'}</button>` : ''}
             <button class="item-remove" onclick="diRemoveRow(${idx})" title="حذف ردیف" type="button">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
@@ -2127,14 +2129,10 @@ function renderInvoiceEditorPage() {
             <div class="input-group"><label>مبلغ پرداخت‌شده</label><input type="text" inputmode="numeric" id="if_paid" value="${num(d.paidAmount)}" oninput="diRecalc()"></div>
         </div>
         <div class="input-group"><label>یادداشت فاکتور</label><textarea id="if_note" placeholder="اختیاری">${esc(d.note || '')}</textarea></div>
-        ${dbRead(K.partners).length ? `
-        <div class="settings-row" style="padding-inline:0;">
-            <div>
-                <div class="settings-row-label">🚫 این فاکتور با شرکا مشترک نیست</div>
-                <div class="settings-row-sub">سود/زیان این فاکتور فقط برای صاحب فروشگاه حساب می‌شود، نه شرکا</div>
-            </div>
-            <label class="switch"><input type="checkbox" id="if_excludePartner" ${d.excludeFromPartnership ? 'checked' : ''}><span class="switch-slider"></span></label>
-        </div>` : ''}
+        ${hasPartners ? `<p class="txt-caption">🤝/🚫 برای مشخص کردن این‌که کدام قلم کالا با شرکا مشترک است، از دکمه کنار هر ردیف کالا (بالا) استفاده کنید — مثلاً وقتی یک فاکتور هم کالای قبل از شراکت دارد هم بعد از آن، هر قلم را جداگانه علامت بزنید.
+            <a href="#" onclick="diMarkAllPartner(true); return false;" style="margin-inline-start:6px;">علامت‌گذاری همه به‌عنوان مشترک</a> ·
+            <a href="#" onclick="diMarkAllPartner(false); return false;">علامت‌گذاری همه به‌عنوان مستثنا</a>
+        </p>` : ''}
         <div class="totals-box" id="invoiceTotalsBox">${invoiceTotalsHtml(subtotal, num(d.discountTotal), taxAmount, total, num(d.paidAmount), interestAmount)}</div>
     </div>
 
@@ -2160,8 +2158,6 @@ function syncInvoiceDraftFromDom() {
     if (paidEl) draftInvoice.paidAmount = num(paidEl.value);
     const noteEl = document.getElementById('if_note');
     if (noteEl) draftInvoice.note = noteEl.value;
-    const exclEl = document.getElementById('if_excludePartner');
-    if (exclEl) draftInvoice.excludeFromPartnership = exclEl.checked;
 }
 function rerenderInvoiceNew() { syncInvoiceDraftFromDom(); rerenderIfActive('invoiceNew'); }
 window.rerenderInvoiceNew = rerenderInvoiceNew;
@@ -2533,6 +2529,18 @@ function diUpdate(idx, field, value) {
 }
 window.diUpdate = diUpdate;
 
+function diToggleItemPartner(idx) {
+    syncInvoiceDraftFromDom();
+    draftInvoice.items[idx].excludeFromPartnership = !draftInvoice.items[idx].excludeFromPartnership;
+    rerenderInvoiceNew();
+}
+window.diToggleItemPartner = diToggleItemPartner;
+function diMarkAllPartner(shared) {
+    syncInvoiceDraftFromDom();
+    draftInvoice.items.forEach(it => { it.excludeFromPartnership = !shared; });
+    rerenderInvoiceNew();
+}
+window.diMarkAllPartner = diMarkAllPartner;
 function diAddRow() { syncInvoiceDraftFromDom(); draftInvoice.items.push({ productId: '', name: '', qty: 1, price: 0, discount: 0 }); rerenderIfActive('invoiceNew'); }
 window.diAddRow = diAddRow;
 function diRemoveRow(idx) {
@@ -2629,7 +2637,8 @@ function saveInvoice() {
     const note = document.getElementById('if_note').value.trim();
     const invoiceType = draftInvoice.invoiceType || 'invoice';
     const date = getJalaliInputISO('if_date') || draftInvoice.date || todayISO();
-    const excludeFromPartnership = !!(document.getElementById('if_excludePartner') || {}).checked;
+    // Roll-up flag purely for list badges/filters: true only when every line item is excluded
+    const excludeFromPartnership = items.length > 0 && items.every(it => it.excludeFromPartnership);
 
     const list = dbRead(K.invoices);
     let savedId = draftInvoice.id;
@@ -2696,8 +2705,8 @@ function openInvoiceView(id) {
             <div>${statusBadge}</div>
         </div>
         <table class="report-table" style="margin-bottom:10px;">
-            <thead><tr><th>کالا</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th></tr></thead>
-            <tbody>${inv.items.map(it => `<tr><td>${it.isConsignment ? '★ ' : ''}${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(it.qty * it.price)}</td></tr>`).join('')}</tbody>
+            <thead><tr><th>کالا</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th>${dbRead(K.partners).length ? '<th>شراکت</th>' : ''}</tr></thead>
+            <tbody>${inv.items.map(it => `<tr><td>${it.isConsignment ? '★ ' : ''}${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(it.qty * it.price)}</td>${dbRead(K.partners).length ? `<td>${it.excludeFromPartnership ? '🚫 مستثنا' : '🤝 مشترک'}</td>` : ''}</tr>`).join('')}</tbody>
         </table>
         <div class="totals-box">${invoiceTotalsHtml(inv.items.reduce((s, it) => s + it.qty * it.price, 0), inv.discountTotal, inv.taxAmount, inv.total, inv.paidAmount)}</div>
         ${inv.note ? `<div class="input-group" style="margin-top:12px;"><label>یادداشت</label><div class="txt-body">${esc(inv.note)}</div></div>` : ''}
@@ -4614,7 +4623,6 @@ function computePartnerShares() {
     const s = getSettings();
     const mode = s.partnershipMode || 'auto';
     const products = dbRead(K.products);
-    const invoiceCogs = (inv) => inv.items.reduce((s2, it) => { const p = products.find(x => x.id === it.productId); return s2 + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
 
     function activePartnersAt(date) { return partners.filter(p => new Date(p.joinDate) <= new Date(date)); }
     function distribute(amount, date, excluded) {
@@ -4633,7 +4641,20 @@ function computePartnerShares() {
         active.forEach((p, idx) => { shares[p.id] += amount * weights[idx]; });
     }
 
-    dbRead(K.invoices).forEach(inv => distribute(num(inv.total) - invoiceCogs(inv), inv.date, inv.excludeFromPartnership));
+    // Invoices are split per line-item (not per whole invoice), since a single invoice can mix
+    // pre-partnership stock with post-partnership stock — each item carries its own exclusion flag.
+    dbRead(K.invoices).forEach(inv => {
+        inv.items.forEach(it => {
+            const p = products.find(x => x.id === it.productId);
+            const cost = (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty);
+            const itemProfit = num(it.qty) * num(it.price) - cost;
+            distribute(itemProfit, inv.date, it.excludeFromPartnership);
+        });
+        // discount and any credit/check interest are invoice-level adjustments, applied using the
+        // invoice's overall flag (true only when every item on it is excluded)
+        const adjustment = num(inv.interestAmount) - num(inv.discountTotal);
+        if (adjustment) distribute(adjustment, inv.date, inv.excludeFromPartnership);
+    });
     dbRead(K.expenses).forEach(e => distribute(-num(e.amount), e.date, e.excludeFromPartnership));
     dbRead(K.payroll).forEach(p => distribute(-num(p.amount), p.date, p.excludeFromPartnership));
     return shares;

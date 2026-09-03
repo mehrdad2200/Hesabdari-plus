@@ -1519,12 +1519,14 @@ select, input[type="checkbox"], input[type="radio"] { accent-color: var(--accent
 .chip.active { background: linear-gradient(135deg, var(--accent-glow-2), var(--accent-cyan)); color: #fff; border-color: transparent; }
 
 /* Line-item editor (invoice / purchase builder) ---------------------------- */
-.item-row { display: grid; grid-template-columns: 2fr 0.7fr 1fr 1fr auto; gap: 6px; align-items: center; margin-bottom: 8px; }
+.item-row { display: grid; grid-template-columns: 2fr 0.7fr 1fr 1fr auto auto; gap: 6px; align-items: center; margin-bottom: 8px; }
 .item-row select, .item-row input { padding: 8px 8px; font-size: 0.78rem; font-weight: 700; }
 .item-row .item-remove { width: 30px; height: 30px; flex-shrink: 0; border-radius: var(--r-sm); border: 1px solid var(--border-color); background: var(--surface-2); color: var(--accent-rose); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.item-row-head { display: grid; grid-template-columns: 2fr 0.7fr 1fr 1fr auto; gap: 6px; font-size: 0.62rem; color: var(--text-muted); font-weight: 700; margin-bottom: 6px; padding-inline-end: 36px; }
+.item-row .item-partner-toggle { width: 30px; height: 30px; flex-shrink: 0; border-radius: var(--r-sm); border: 1px solid var(--border-color); background: var(--surface-2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; }
+.item-row .item-partner-toggle.excluded { background: rgba(244, 63, 94, 0.12); border-color: var(--accent-rose); }
+.item-row-head { display: grid; grid-template-columns: 2fr 0.7fr 1fr 1fr auto auto; gap: 6px; font-size: 0.62rem; color: var(--text-muted); font-weight: 700; margin-bottom: 6px; padding-inline-end: 36px; }
 @media (max-width: 480px) {
-    .item-row, .item-row-head { grid-template-columns: 1.6fr .6fr .8fr .8fr auto; }
+    .item-row, .item-row-head { grid-template-columns: 1.6fr .6fr .8fr .8fr auto auto; }
 }
 .totals-box { background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: 12px 14px; margin-top: 6px; }
 .totals-row { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary); padding: 5px 0; font-weight: 700; }
