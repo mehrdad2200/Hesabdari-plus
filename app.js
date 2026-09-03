@@ -166,6 +166,36 @@ function num(v) {
     const n = parseFloat(toEnglishDigits(v == null ? '' : v).toString().replace(/[^0-9.\-]/g, ''));
     return isNaN(n) ? 0 : n;
 }
+
+/* ---------------------------------------------------------------------------
+   Live thousands-separator formatting for money-like numeric fields (so users
+   never lose track of how many digits/zeros they've typed). Applied globally
+   via delegation, so every current AND future numeric input gets it for free
+   — except identifier-like fields (phone, sayad, account/card/check numbers,
+   percentages, quantities) which must stay as plain digits.
+   ------------------------------------------------------------------------- */
+const NON_MONEY_FIELD_PATTERN = /(sayad|accno|cardno|number|phone|tel|percent|national|postal|zip|qty|Qty)/i;
+function isMoneyNumericInput(el) {
+    if (!el || el.tagName !== 'INPUT') return false;
+    if ((el.getAttribute('inputmode') || '') !== 'numeric') return false;
+    if (NON_MONEY_FIELD_PATTERN.test(el.id || '')) return false;
+    return true;
+}
+function formatMoneyLive(el) {
+    const digitsOnly = toEnglishDigits(el.value).replace(/[^0-9.\-]/g, '');
+    if (digitsOnly === '' || digitsOnly === '-') return;
+    const neg = digitsOnly.startsWith('-');
+    const body = neg ? digitsOnly.slice(1) : digitsOnly;
+    const [intRaw, ...restParts] = body.split('.');
+    const intPart = intRaw.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',') || '0';
+    const formatted = (neg ? '-' : '') + intPart + (restParts.length ? '.' + restParts.join('') : '');
+    if (formatted === el.value) return;
+    const cursorFromEnd = el.value.length - (el.selectionStart == null ? el.value.length : el.selectionStart);
+    el.value = formatted;
+    const newPos = Math.max(0, formatted.length - cursorFromEnd);
+    try { el.setSelectionRange(newPos, newPos); } catch (e) {}
+}
+document.addEventListener('input', (e) => { if (isMoneyNumericInput(e.target)) formatMoneyLive(e.target); }, true);
 function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -418,6 +448,26 @@ window.addEventListener('popstate', () => {
     else if (moreOpen) closeMoreMenu();
 });
 
+const NAV_ICONS = {
+    home: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+    dashboard: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>`,
+    invoices: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>`,
+    products: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>`,
+    customers: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    purchases: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>`,
+    treasury: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 6V4h12v2"/></svg>`,
+    checks: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>`,
+    expenses: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+    payroll: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><line x1="19" y1="6" x2="19" y2="10"/><line x1="17" y1="8" x2="21" y2="8"/></svg>`,
+    settlements: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
+    partners: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M17 11a4 4 0 1 0 0-8"/><path d="M1 21v-2a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v2"/><path d="M17 13a4 4 0 0 1 4 4v2h-4"/></svg>`,
+    stocktake: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>`,
+    reports: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+    backup: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
+    help: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+    about: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+    settings: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+};
 function openMoreMenu() {
     const items = [
         ['home', 'خانه'], ['dashboard', 'داشبورد'], ['invoices', 'فاکتور فروش'], ['products', 'کالا و انبار'],
@@ -427,7 +477,10 @@ function openMoreMenu() {
         ['help', 'راهنما'], ['about', 'درباره برنامه'], ['settings', 'تنظیمات']
     ];
     const html = items.map(([v, l]) => `
-        <button class="btn-action" style="width:100%; justify-content:flex-start; margin-bottom:8px;" onclick="closeMoreMenu(); switchView('${v}')">${esc(l)}</button>
+        <button class="btn-action more-menu-item" style="width:100%; justify-content:flex-start; gap:10px; margin-bottom:8px;" onclick="closeMoreMenu(); switchView('${v}')">
+            <span class="more-menu-icon">${NAV_ICONS[v] || ''}</span>
+            <span>${esc(l)}</span>
+        </button>
     `).join('');
     document.getElementById('moreMenuBody').innerHTML = html;
     document.getElementById('moreMenuOverlay').classList.add('active');
@@ -1010,13 +1063,52 @@ function generateSeedData(businessType) {
 let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
 
 function startOnboarding() {
-    onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
+    onboardState = { phase: 'intro', step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: false, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
     const overlay = document.getElementById('onboardOverlay');
     overlay.hidden = false;
     renderOnboard();
 }
 
+function renderOnboardIntroPhase() {
+    const overlay = document.getElementById('onboardOverlay');
+    overlay.innerHTML = `
+    <div class="onboard-card">
+        <div class="onboard-logo"><img src="icons/icon-192.png" alt="لوگو"></div>
+        <div class="onboard-title">به حسابداری پلاس خوش آمدید</div>
+        <div class="onboard-sub" style="margin-bottom:14px;">پیش از شروع، بگذارید بگوییم این برنامه چیست</div>
+        <p class="txt-body" style="color:var(--text-secondary); line-height:2; text-align:right;">
+            «حسابداری پلاس» یک نرم‌افزار کامل مدیریت فروشگاه است: فاکتور فروش و خرید، مدیریت انبار و کالا، صندوق و بانک، چک‌ها، حقوق پرسنل، بدهکاران و طلبکاران، گزارش‌های سود و زیان، و پشتیبان‌گیری خودکار — همه در یک‌جا. تمام اطلاعات شما روی همین دستگاه ذخیره می‌شود و در صورت ورود با حساب گوگل، به‌صورت خودکار روی حساب شما هم نگه‌داری و بین دستگاه‌ها همگام می‌شود.
+        </p>
+        <div class="onboard-nav" style="margin-top:18px;">
+            <button class="calc-btn" style="width:100%;" onclick="onboardState.phase='account'; renderOnboard();">متوجه شدم، ادامه</button>
+        </div>
+    </div>`;
+}
+function renderOnboardAccountPhase() {
+    const overlay = document.getElementById('onboardOverlay');
+    overlay.innerHTML = `
+    <div class="onboard-card">
+        <div class="onboard-logo"><img src="icons/icon-192.png" alt="لوگو"></div>
+        <div class="onboard-title">قبلاً از این برنامه استفاده کرده‌اید؟</div>
+        <div class="onboard-sub" style="margin-bottom:14px;">اگر روی دستگاه دیگری با حساب گوگل وارد شده‌اید، همین‌جا وارد شوید تا تمام اطلاعات‌تان به این دستگاه هم بیاید — بدون نیاز به وارد کردن دوباره چیزی.</div>
+        <button class="calc-btn" style="width:100%; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;" onclick="onboardSignInGoogle()">
+            <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47c-.28 1.48-1.13 2.73-2.4 3.58v2.98h3.88c2.27-2.09 3.54-5.17 3.54-8.8z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-2.98c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.29v3.09C3.26 21.3 7.31 24 12 24z"/><path fill="#FBBC05" d="M5.31 14.33c-.24-.72-.38-1.49-.38-2.28s.14-1.56.38-2.28V6.68H1.29A11.96 11.96 0 000 12.05c0 1.93.46 3.76 1.29 5.37l4.02-3.09z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.68l4.02 3.09c.94-2.83 3.58-4.93 6.69-4.93z"/></svg>
+            ورود با حساب گوگل قبلی
+        </button>
+        <p class="txt-caption" style="text-align:center; margin-bottom:10px;">— یا —</p>
+        <button class="btn-action" style="width:100%;" onclick="onboardState.phase='wizard'; renderOnboard();">🏪 ساخت فروشگاه جدید از صفر</button>
+    </div>`;
+}
+function onboardSignInGoogle() {
+    signInWithGoogle();
+    // if sign-in succeeds and cloud data exists, autoReconcileCloud() (triggered by onCloudAuthChange)
+    // will pull it and reload the page automatically — this onboarding overlay simply disappears.
+}
+window.onboardSignInGoogle = onboardSignInGoogle;
+
 function renderOnboard() {
+    if (onboardState.phase === 'intro') { renderOnboardIntroPhase(); return; }
+    if (onboardState.phase === 'account') { renderOnboardAccountPhase(); return; }
     const overlay = document.getElementById('onboardOverlay');
     const totalSteps = onboardState.hasPartners ? 4 : 4;
     const dots = [1, 2, 3, 4].map(n => `<span class="onboard-dot ${n <= onboardState.step ? 'active' : ''}"></span>`).join('');
@@ -1097,12 +1189,17 @@ function renderOnboard() {
             <label>درصد مالیات</label>
             <input type="text" inputmode="numeric" id="ob_taxPercent" value="${esc(onboardState.taxPercent)}">
         </div>
-        <div class="settings-row" style="padding-inline:0;">
-            <div>
-                <div class="settings-row-label">بارگذاری داده‌های نمونه</div>
-                <div class="settings-row-sub">چند مشتری، کالا و فاکتور نمونه برای آشنایی با برنامه اضافه شود</div>
+        <div class="onboard-demo-warning">
+            <div class="settings-row" style="padding-inline:0;">
+                <div>
+                    <div class="settings-row-label">بارگذاری داده‌های نمونه (تستی)</div>
+                    <div class="settings-row-sub">چند مشتری، کالا و فاکتور ساختگی برای آشنایی با محیط برنامه اضافه می‌شود</div>
+                </div>
+                <label class="switch"><input type="checkbox" id="ob_loadDemo" ${onboardState.loadDemo ? 'checked' : ''}><span class="switch-slider"></span></label>
             </div>
-            <label class="switch"><input type="checkbox" id="ob_loadDemo" ${onboardState.loadDemo ? 'checked' : ''}><span class="switch-slider"></span></label>
+            <p class="txt-body" style="color:var(--accent-rose); font-weight:700; margin-top:8px; line-height:1.9;">
+                ⚠️ این گزینه فقط برای آزمایش و آشنایی با امکانات برنامه است — اطلاعاتی که وارد می‌کند واقعی نیست. بعد از این‌که با برنامه آشنا شدید، حتماً از «تنظیمات ← پاک کردن همه اطلاعات و شروع مجدد» استفاده کنید و از صفر و به‌صورت واقعی شروع به کار کنید. توصیه می‌شود این گزینه را <u>خاموش</u> نگه دارید مگر بخواهید همین الان محیط برنامه را امتحان کنید.
+            </p>
         </div>`;
     }
 
@@ -1188,6 +1285,7 @@ function obNext() {
 }
 function obPrev() {
     obCollectStep();
+    if (onboardState.step <= 1) { onboardState.phase = 'account'; renderOnboard(); return; }
     onboardState.step--;
     renderOnboard();
 }
@@ -1817,7 +1915,7 @@ function invoiceItemHtml(inv) {
     <div class="list-item" style="cursor:pointer;" onclick="openInvoiceView('${inv.id}')">
         <div class="list-item-row">
             <div>
-                <div class="list-item-title">${inv.invoiceType === 'proforma' ? '<span class="badge badge-cyan" style="margin-inline-end:4px;">پیش‌فاکتور</span>' : ''}${esc(inv.customerNameSnapshot || 'مشتری نقدی')} <span class="txt-caption">#${inv.number}</span></div>
+                <div class="list-item-title">${inv.invoiceType === 'proforma' ? '<span class="badge badge-cyan" style="margin-inline-end:4px;">پیش‌فاکتور</span>' : ''}${inv.excludeFromPartnership ? '<span class="badge badge-amber" style="margin-inline-end:4px;" title="مشترک با شرکا نیست">🚫شرکا</span>' : ''}${esc(inv.customerNameSnapshot || 'مشتری نقدی')} <span class="txt-caption">#${inv.number}</span></div>
                 <div class="list-item-sub">${fmtDate(inv.date)} · ${inv.items.length.toLocaleString(localeForDigits())} قلم کالا</div>
             </div>
             <div style="text-align:left;"><div class="list-item-title">${money(inv.total)}</div>${invStatusBadge(inv.status)}</div>
@@ -2029,6 +2127,14 @@ function renderInvoiceEditorPage() {
             <div class="input-group"><label>مبلغ پرداخت‌شده</label><input type="text" inputmode="numeric" id="if_paid" value="${num(d.paidAmount)}" oninput="diRecalc()"></div>
         </div>
         <div class="input-group"><label>یادداشت فاکتور</label><textarea id="if_note" placeholder="اختیاری">${esc(d.note || '')}</textarea></div>
+        ${dbRead(K.partners).length ? `
+        <div class="settings-row" style="padding-inline:0;">
+            <div>
+                <div class="settings-row-label">🚫 این فاکتور با شرکا مشترک نیست</div>
+                <div class="settings-row-sub">سود/زیان این فاکتور فقط برای صاحب فروشگاه حساب می‌شود، نه شرکا</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="if_excludePartner" ${d.excludeFromPartnership ? 'checked' : ''}><span class="switch-slider"></span></label>
+        </div>` : ''}
         <div class="totals-box" id="invoiceTotalsBox">${invoiceTotalsHtml(subtotal, num(d.discountTotal), taxAmount, total, num(d.paidAmount), interestAmount)}</div>
     </div>
 
@@ -2054,6 +2160,8 @@ function syncInvoiceDraftFromDom() {
     if (paidEl) draftInvoice.paidAmount = num(paidEl.value);
     const noteEl = document.getElementById('if_note');
     if (noteEl) draftInvoice.note = noteEl.value;
+    const exclEl = document.getElementById('if_excludePartner');
+    if (exclEl) draftInvoice.excludeFromPartnership = exclEl.checked;
 }
 function rerenderInvoiceNew() { syncInvoiceDraftFromDom(); rerenderIfActive('invoiceNew'); }
 window.rerenderInvoiceNew = rerenderInvoiceNew;
@@ -2067,6 +2175,8 @@ function syncPurchaseDraftFromDom() {
     if (pmEl) { draftPurchase.paymentMethod = pmEl.value; draftPurchase.paymentDetails = paymentDetailsCollect('pf', pmEl.value); }
     const paidEl = document.getElementById('pf_paid');
     if (paidEl) draftPurchase.paidAmount = num(paidEl.value);
+    const exclEl = document.getElementById('pf_excludePartner');
+    if (exclEl) draftPurchase.excludeFromPartnership = exclEl.checked;
 }
 function rerenderPurchaseNew() { syncPurchaseDraftFromDom(); rerenderIfActive('purchaseNew'); }
 window.rerenderPurchaseNew = rerenderPurchaseNew;
@@ -2151,7 +2261,7 @@ function paymentDetailsHtml(prefix, method, pd, allowExisting) {
             </div>
             <div id="${prefix}_ckExistingBox" style="display:${pd.source === 'existing' ? 'block' : 'none'};">
                 <div class="input-group"><label>انتخاب چک</label>
-                    <select id="${prefix}_ckExistingId">
+                    <select id="${prefix}_ckExistingId" onchange="if('${prefix}'==='pf') dpApplyAutoPaid();">
                         <option value="">— انتخاب کنید —</option>
                         ${availableChecks.map(c => `<option value="${c.id}" ${pd.existingCheckId === c.id ? 'selected' : ''}>${esc(c.who)} — ${moneyPlain(c.amount)} — سررسید ${fmtDate(c.dueDate)}${c.number ? ' — #' + esc(c.number) : ''}</option>`).join('')}
                     </select>
@@ -2207,6 +2317,7 @@ function ckSourceChange(prefix) {
     const source = document.getElementById(prefix + '_ckSource').value;
     document.getElementById(prefix + '_ckNewBox').style.display = source === 'existing' ? 'none' : 'block';
     document.getElementById(prefix + '_ckExistingBox').style.display = source === 'existing' ? 'block' : 'none';
+    if (prefix === 'pf') dpApplyAutoPaid();
 }
 window.ckSourceChange = ckSourceChange;
 function paymentDetailsCollect(prefix, method) {
@@ -2518,6 +2629,7 @@ function saveInvoice() {
     const note = document.getElementById('if_note').value.trim();
     const invoiceType = draftInvoice.invoiceType || 'invoice';
     const date = getJalaliInputISO('if_date') || draftInvoice.date || todayISO();
+    const excludeFromPartnership = !!(document.getElementById('if_excludePartner') || {}).checked;
 
     const list = dbRead(K.invoices);
     let savedId = draftInvoice.id;
@@ -2527,7 +2639,7 @@ function saveInvoice() {
         const idx = list.findIndex(i => i.id === draftInvoice.id);
         list[idx] = Object.assign(list[idx], {
             customerId, customerNameSnapshot: customer ? customer.name : 'مشتری نقدی',
-            items, discountTotal, taxAmount, interestAmount, total, paidAmount, status, note, invoiceType, paymentMethod, paymentDetails, date
+            items, discountTotal, taxAmount, interestAmount, total, paidAmount, status, note, invoiceType, paymentMethod, paymentDetails, date, excludeFromPartnership
         });
         if (invoiceType !== 'proforma') adjustStock(items, -1);
     } else {
@@ -2535,7 +2647,7 @@ function saveInvoice() {
         list.push({
             id: savedId, number: draftInvoice.number, date, customerId,
             customerNameSnapshot: customer ? customer.name : 'مشتری نقدی', items, discountTotal, taxAmount, interestAmount, total,
-            paidAmount, status, note, invoiceType, paymentMethod, paymentDetails
+            paidAmount, status, note, invoiceType, paymentMethod, paymentDetails, excludeFromPartnership
         });
         if (invoiceType !== 'proforma') adjustStock(items, -1);
     }
@@ -2679,13 +2791,16 @@ function printInvoice(id) {
         </table>
         ${inv.items.some(it => it.isConsignment) ? `<div class="txt-caption">★ کالای امانی از همکار</div>` : ''}
         <div class="bill-totals">
-            <div class="totals-row"><span>جمع کل</span><span>${moneyPlain(inv.items.reduce((s2, it) => s2 + it.qty * it.price, 0))} ${esc(currencyLabel())}</span></div>
+            <div class="totals-row"><span>جمع کل کالاها</span><span>${moneyPlain(inv.items.reduce((s2, it) => s2 + it.qty * it.price, 0))} ${esc(currencyLabel())}</span></div>
             ${inv.discountTotal ? `<div class="totals-row"><span>تخفیف</span><span>−${moneyPlain(inv.discountTotal)}</span></div>` : ''}
             ${inv.taxAmount ? `<div class="totals-row"><span>مالیات</span><span>${moneyPlain(inv.taxAmount)}</span></div>` : ''}
-            <div class="totals-row grand"><span>مبلغ نهایی</span><span>${moneyPlain(inv.total)} ${esc(currencyLabel())}</span></div>
+            ${inv.interestAmount ? `<div class="totals-row"><span>سود نسیه/چک (${esc((inv.paymentDetails && inv.paymentDetails.monthlyPercent) || 0)}٪ در ماه)</span><span>${moneyPlain(inv.interestAmount)}</span></div>` : ''}
+            <div class="totals-row grand"><span>مبلغ نهایی قابل پرداخت</span><span>${moneyPlain(inv.total)} ${esc(currencyLabel())}</span></div>
             <div class="totals-row"><span>پرداخت‌شده</span><span>${moneyPlain(inv.paidAmount)}</span></div>
             <div class="totals-row"><span>مانده حساب</span><span>${moneyPlain(remain)}</span></div>
         </div>
+        ${(inv.paymentMethod === 'check' && inv.paymentDetails) ? `<p class="txt-caption">مشخصات چک: ${inv.paymentDetails.bank ? 'بانک ' + esc(inv.paymentDetails.bank) + ' — ' : ''}${inv.paymentDetails.checkNumber ? 'شماره ' + esc(inv.paymentDetails.checkNumber) + ' — ' : ''}سررسید ${fmtDate(inv.paymentDetails.dueDate)}</p>` : ''}
+        ${(inv.paymentMethod === 'credit' && inv.paymentDetails) ? `<p class="txt-caption">نسیه — موعد تسویه: ${fmtDate(inv.paymentDetails.dueDate)} · سود ${esc(inv.paymentDetails.monthlyPercent || 0)}٪ در ماه${inv.paymentDetails.compound ? ' (مرکب)' : ''}</p>` : ''}
         <div class="signatures-container">
             <div class="signature-card"><div class="signature-card-name">امضای فروشنده</div><div class="signature-space"></div></div>
             <div class="signature-card"><div class="signature-card-name">امضای خریدار</div><div class="signature-space"></div></div>
@@ -2715,7 +2830,7 @@ function purchaseItemHtml(p) {
     return `
         <div class="list-item" style="cursor:pointer;" onclick="openPurchaseEditor('${p.id}')">
             <div class="list-item-row">
-                <div><div class="list-item-title">${esc(p.supplier)} <span class="txt-caption">#${p.number}</span></div><div class="list-item-sub">${fmtDate(p.date)} · ${p.items.length.toLocaleString(localeForDigits())} قلم</div></div>
+                <div><div class="list-item-title">${esc(p.supplier)} <span class="txt-caption">#${p.number}</span></div><div class="list-item-sub">${fmtDate(p.date)} · ${p.items.length.toLocaleString(localeForDigits())} قلم${p.checkDeduction ? ' · ' + moneyPlain(p.checkDeduction.amount) + ' با چک تسویه شد' : ''}</div></div>
                 <div style="text-align:left;"><div class="list-item-title">${money(p.total)}</div>${remain > 0 ? `<span class="badge badge-rose">بدهی ${moneyPlain(remain)}</span>` : `<span class="badge badge-emerald">تسویه</span>`}</div>
             </div>
         </div>`;
@@ -2814,6 +2929,15 @@ function renderPurchaseEditorPage() {
     </div>
     <div class="section-box">
         <div class="input-group"><label>مبلغ پرداخت‌شده</label><input type="text" inputmode="numeric" id="pf_paid" value="${num(d.paidAmount)}" oninput="dpRecalc()"></div>
+        ${dbRead(K.partners).length ? `
+        <div class="settings-row" style="padding-inline:0;">
+            <div>
+                <div class="settings-row-label">🚫 این خرید با شرکا مشترک نیست</div>
+                <div class="settings-row-sub">هزینه این خرید فقط برای صاحب فروشگاه حساب می‌شود، نه شرکا</div>
+            </div>
+            <label class="switch"><input type="checkbox" id="pf_excludePartner" ${d.excludeFromPartnership ? 'checked' : ''}><span class="switch-slider"></span></label>
+        </div>
+        <p class="txt-caption">توجه: هزینه خرید در سود شرکا از طریق «بهای تمام‌شده کالای فروخته‌شده» در فاکتور فروش لحاظ می‌شود، نه مستقیماً اینجا؛ این گزینه بیشتر برای گزارش‌گیری و شفافیت است.</p>` : ''}
         <div class="totals-box" id="purchaseTotalsBox">${purchaseTotalsHtml(total, num(d.paidAmount), interestAmount)}</div>
     </div>
     <button class="calc-btn" onclick="savePurchase()" type="button">${d.id ? 'ذخیره تغییرات' : 'ثبت خرید'}</button>
@@ -2894,6 +3018,21 @@ function dpApplyAutoPaid() {
         paidEl.readOnly = true;
         paidEl.title = 'در پرداخت نقدی/کارتی، مبلغ به‌طور کامل و همان لحظه پرداخت می‌شود';
         dpRecalc();
+    } else if (method === 'check') {
+        const sourceEl = document.getElementById('pf_ckSource');
+        const existingIdEl = document.getElementById('pf_ckExistingId');
+        if (sourceEl && sourceEl.value === 'existing' && existingIdEl && existingIdEl.value) {
+            const chk = dbRead(K.checks).find(c => c.id === existingIdEl.value);
+            if (chk) {
+                paidEl.value = num(chk.amount);
+                paidEl.readOnly = true;
+                paidEl.title = `این مبلغ از چک دریافتیِ «${chk.who}» کسر و بابت این خرید واگذار می‌شود`;
+                dpRecalc();
+                return;
+            }
+        }
+        paidEl.readOnly = false;
+        paidEl.title = '';
     } else {
         paidEl.readOnly = false;
         paidEl.title = '';
@@ -2937,6 +3076,12 @@ function savePurchase() {
     const paidAmount = Math.min(total, num(document.getElementById('pf_paid').value));
     const status = paidAmount >= total && total > 0 ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
     const date = getJalaliInputISO('pf_date') || draftPurchase.date || todayISO();
+    let checkDeduction = null;
+    if (paymentMethod === 'check' && paymentDetails.source === 'existing' && paymentDetails.existingCheckId) {
+        const chk = dbRead(K.checks).find(c => c.id === paymentDetails.existingCheckId);
+        if (chk) checkDeduction = { checkId: chk.id, who: chk.who, number: chk.number, amount: chk.amount };
+    }
+    const excludeFromPartnership = !!(document.getElementById('pf_excludePartner') || {}).checked;
 
     const list = dbRead(K.purchases);
     let savedId = draftPurchase.id;
@@ -2944,11 +3089,11 @@ function savePurchase() {
         const old = list.find(p => p.id === draftPurchase.id);
         if (old) adjustStockByName(old.items, -1);
         const idx = list.findIndex(p => p.id === draftPurchase.id);
-        list[idx] = Object.assign(list[idx], { supplier, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, date });
+        list[idx] = Object.assign(list[idx], { supplier, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, checkDeduction, excludeFromPartnership, date });
         adjustStockByName(items, +1);
     } else {
         savedId = uid('pur');
-        list.push({ id: savedId, number: draftPurchase.number, date, supplier, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails });
+        list.push({ id: savedId, number: draftPurchase.number, date, supplier, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, checkDeduction, excludeFromPartnership });
         adjustStockByName(items, +1);
     }
     dbWrite(K.purchases, list);
@@ -3244,6 +3389,8 @@ function printPurchase(id) {
         </table>
         <div class="bill-totals">
             <div class="totals-row grand"><span>جمع کل</span><span>${moneyPlain(p.total)} ${esc(currencyLabel())}</span></div>
+            ${p.checkDeduction ? `<div class="totals-row"><span>کسر بابت چک دریافتی (${esc(p.checkDeduction.who)}${p.checkDeduction.number ? ' — #' + esc(p.checkDeduction.number) : ''})</span><span>−${moneyPlain(p.checkDeduction.amount)}</span></div>` : ''}
+            ${p.interestAmount ? `<div class="totals-row"><span>سود نسیه/چک</span><span>${moneyPlain(p.interestAmount)}</span></div>` : ''}
             <div class="totals-row"><span>پرداخت‌شده</span><span>${moneyPlain(p.paidAmount)}</span></div>
             <div class="totals-row"><span>مانده بدهی</span><span>${moneyPlain(remain)}</span></div>
         </div>
@@ -4453,24 +4600,28 @@ function earliestActivityDate() {
     if (!dates.length) { const d = new Date(); d.setFullYear(d.getFullYear() - 1); return d.toISOString(); }
     return dates.sort((a, b) => new Date(a) - new Date(b))[0];
 }
-/* Era-based profit split: partners only share in profit generated from their own join date
-   onward. We slice store history into eras at each distinct partner join date, and within each
-   era split that era's profit only among the partners who had already joined by then. */
+/* Per-transaction profit split: by default each invoice/expense/payroll entry is split among
+   whichever partners had already joined by that record's date (so a partner only shares in
+   activity from their own join date onward). Any individual record can also be explicitly
+   marked "excludeFromPartnership" (e.g. old stock a new partner declined to share in) — in that
+   case its full profit/cost goes to the owner alone instead of being split. */
 function computePartnerShares() {
     const partners = dbRead(K.partners);
     const shares = {};
     partners.forEach(p => { shares[p.id] = 0; });
     if (!partners.length) return shares;
+    const owner = partners.find(p => p.isOwner) || null;
     const s = getSettings();
     const mode = s.partnershipMode || 'auto';
-    const boundaries = Array.from(new Set(partners.map(p => p.joinDate))).sort((a, b) => new Date(a) - new Date(b));
-    const now = todayISO();
-    for (let i = 0; i < boundaries.length; i++) {
-        const eraStart = boundaries[i];
-        const eraEnd = boundaries[i + 1] || now;
-        const active = partners.filter(p => new Date(p.joinDate) <= new Date(eraStart));
-        if (!active.length) continue;
-        const eraProfit = computeStoreNetProfit(eraStart, eraEnd);
+    const products = dbRead(K.products);
+    const invoiceCogs = (inv) => inv.items.reduce((s2, it) => { const p = products.find(x => x.id === it.productId); return s2 + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
+
+    function activePartnersAt(date) { return partners.filter(p => new Date(p.joinDate) <= new Date(date)); }
+    function distribute(amount, date, excluded) {
+        if (!amount) return;
+        if (excluded) { if (owner) shares[owner.id] += amount; return; }
+        const active = activePartnersAt(date);
+        if (!active.length) return;
         let weights;
         if (mode === 'manual') {
             const sum = active.reduce((s2, p) => s2 + num(p.percentManual), 0);
@@ -4479,8 +4630,12 @@ function computePartnerShares() {
             const sum = active.reduce((s2, p) => s2 + num(p.capitalToman), 0);
             weights = sum ? active.map(p => num(p.capitalToman) / sum) : active.map(() => 1 / active.length);
         }
-        active.forEach((p, idx) => { shares[p.id] += eraProfit * weights[idx]; });
+        active.forEach((p, idx) => { shares[p.id] += amount * weights[idx]; });
     }
+
+    dbRead(K.invoices).forEach(inv => distribute(num(inv.total) - invoiceCogs(inv), inv.date, inv.excludeFromPartnership));
+    dbRead(K.expenses).forEach(e => distribute(-num(e.amount), e.date, e.excludeFromPartnership));
+    dbRead(K.payroll).forEach(p => distribute(-num(p.amount), p.date, p.excludeFromPartnership));
     return shares;
 }
 function partnerPercentDisplay(p, partners) {
@@ -4508,7 +4663,8 @@ function renderPartners() {
             <option value="manual" ${s.partnershipMode === 'manual' ? 'selected' : ''}>دستی — خودم درصد هرکس را مشخص می‌کنم</option>
         </select>
     </div>
-    <p class="txt-caption" style="margin-bottom:10px;">هر شریک فقط در سود/زیانی که از «تاریخ ورود» خودش به بعد ایجاد شده سهیم است؛ دوره‌های قبل از ورود او جزو سهمش حساب نمی‌شود.</p>
+    <p class="txt-caption" style="margin-bottom:10px;">هر شریک فقط در سود/زیانی که از «تاریخ ورود» خودش به بعد ایجاد شده سهیم است؛ دوره‌های قبل از ورود او جزو سهمش حساب نمی‌شود. علاوه بر این، هر فاکتور به‌طور جداگانه هم قابل «مستثنا کردن از شراکت» است (مثلاً کالای قدیمی که یک شریک نمی‌خواهد در آن سهیم باشد) — این گزینه در فرم هر فاکتور/خرید موجود است و در آن صورت سود/زیان آن مورد فقط برای صاحب فروشگاه محاسبه می‌شود.</p>
+    ${!dbRead(K.partners).some(p => p.isOwner) ? `<p class="txt-caption" style="color:var(--accent-amber); margin-bottom:10px;">⚠️ چون هنوز هیچ شریکی با علامت «صاحب فروشگاه» ثبت نشده، فاکتورهایی که «مستثنا از شراکت» علامت بخورند، سهم‌شان به هیچ‌کس اختصاص داده نمی‌شود (فقط از جمع سود شرکا کسر می‌شود). برای رفع این موضوع، از دکمه + یک شریک با گزینه «افزودن شریک» جدید بسازید تا صاحب فروشگاه هم به‌طور خودکار ثبت شود.</p>` : ''}
     <div class="search-bar">
         <div></div>
         <button class="fab-add" onclick="openAddPartnerWizard()" title="افزودن شریک">
@@ -5151,9 +5307,15 @@ function saveFinanceSettings() {
 window.saveFinanceSettings = saveFinanceSettings;
 
 function resetAllData() {
-    if (!confirm('همه اطلاعات (مشتریان، کالاها، فاکتورها، هزینه‌ها) برای همیشه حذف می‌شود. ادامه می‌دهید؟')) return;
+    if (!confirm('همه اطلاعات (مشتریان، کالاها، فاکتورها، هزینه‌ها، شرکا و ...) برای همیشه حذف می‌شود. ادامه می‌دهید؟')) return;
     if (!confirm('این عمل غیرقابل بازگشت است. برای تأیید نهایی دوباره تأیید کنید.')) return;
+    if (fbUser) {
+        // sign out first so the (now-empty) local state never gets auto-synced up and overwrites real cloud data
+        try { fbAuth.signOut(); } catch (e) {}
+    }
     Object.values(K).forEach(k => localStorage.removeItem(k));
+    ['ap_last_backup_time', 'ap_local_last_modified', 'ap_last_cloud_sync', 'ap_backup_folder_name', 'ap_expense_categories'].forEach(k => localStorage.removeItem(k));
+    indexedDB.deleteDatabase(BACKUP_DB_NAME);
     location.reload();
 }
 window.resetAllData = resetAllData;
@@ -5166,6 +5328,7 @@ function renderBackup() {
     const lastTime = localStorage.getItem('ap_last_backup_time');
     const hasFsSupport = !!window.showDirectoryPicker;
     const folderLinked = !!window._apBackupDirHandle;
+    const savedFolderName = localStorage.getItem('ap_backup_folder_name');
     const log = _backupLogCache;
     const s = getSettings();
     const retentionDays = num(s.backupRetentionDays) || 365;
@@ -5175,6 +5338,7 @@ function renderBackup() {
     <div class="section-box">
         <div class="section-title">پشتیبان‌گیری خودکار</div>
         <p class="txt-body" style="margin-bottom:10px; color:var(--text-secondary);">با هر تغییر (ثبت فاکتور، کالا، هزینه و ...) به‌صورت خودکار یک نسخه پشتیبان کامل ذخیره می‌شود؛ این کار در همه مرورگرها (حتی سافاری و فایرفاکس) انجام می‌شود و نیازی به تنظیم اضافه ندارد. یک نسخه‌ی جداگانه هم برای هر روز نگه‌داری می‌شود.</p>
+        <p class="txt-caption" style="margin-bottom:10px;">📍 محل ذخیره این پشتیبان خودکار: <strong>داخل حافظه مرورگر (IndexedDB)</strong> است، نه یک فایل قابل‌مشاهده روی سیستم شما — برای گرفتن یک فایل واقعی قابل‌مشاهده، از دکمه «دانلود» در تاریخچه پایین همین صفحه یا «دانلود فایل پشتیبان» زیر استفاده کنید.</p>
         ${lastTime ? `<p class="txt-caption" style="margin-bottom:10px;">آخرین پشتیبان خودکار: ${fmtDateTime(lastTime)}</p>` : ''}
         <div class="input-group">
             <label>مدت نگهداری پشتیبان‌های روزانه</label>
@@ -5184,6 +5348,7 @@ function renderBackup() {
         </div>
         <p class="txt-body" style="margin:10px 0; color:var(--text-secondary);">علاوه بر این، در مرورگرهای مبتنی بر Chromium (Chrome، Edge، Brave) می‌توانید یک پوشه واقعی روی سیستم خود انتخاب کنید تا یک فایل پشتیبان به‌طور خودکار و بی‌صدا در همان پوشه هم به‌روزرسانی شود — این یک قابلیت اضافه و اختیاری است، نه جایگزین پشتیبان خودکار داخلی بالا.</p>
         ${hasFsSupport ? `
+            ${savedFolderName ? `<p class="txt-caption" style="margin-bottom:8px;">📁 پوشه انتخاب‌شده: <strong>${esc(savedFolderName)}</strong>${!folderLinked ? ' — برای فعال‌سازی مجدد در این جلسه، دوباره متصل کنید' : ''}</p>` : ''}
             <button class="btn-action" style="width:100%;" onclick="linkBackupFolder()">${folderLinked ? '✓ پوشه پشتیبان‌گیری متصل است — تغییر پوشه' : '📁 انتخاب پوشه پشتیبان‌گیری خودکار (اختیاری)'}</button>
         ` : `<p class="txt-caption">این مرورگر خاص از اتصال مستقیم به یک پوشه روی سیستم پشتیبانی نمی‌کند (این محدودیت خود مرورگر است)؛ پشتیبان خودکار داخلی بالا در این مرورگر هم به‌طور کامل فعال است، فقط برای گرفتن فایل از دکمه دانلود دستی زیر استفاده کنید.</p>`}
     </div>
@@ -5220,21 +5385,40 @@ window.saveBackupRetention = saveBackupRetention;
 function downloadBackupLogEntry(date) {
     backupLogGet(date).then(entry => {
         if (!entry) return;
-        const blob = new Blob([entry.json], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `پشتیبان-${entry.jalaliLabel || date}.json`; a.click();
-        URL.revokeObjectURL(url);
+        saveJsonFile(`پشتیبان-${entry.jalaliLabel || date}.json`, entry.json);
     });
 }
 window.downloadBackupLogEntry = downloadBackupLogEntry;
+
+async function saveJsonFile(filename, jsonText) {
+    if (window.showSaveFilePicker) {
+        try {
+            const handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] });
+            const writable = await handle.createWritable();
+            await writable.write(jsonText);
+            await writable.close();
+            showToast(`فایل در «${handle.name}» ذخیره شد`, 'success');
+            return;
+        } catch (e) {
+            if (e && e.name === 'AbortError') return; // user cancelled the picker
+            // fall through to the plain-download fallback below
+        }
+    }
+    const blob = new Blob([jsonText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    showToast('فایل در پوشه دانلود پیش‌فرض مرورگر ذخیره شد', 'success');
+}
 
 async function linkBackupFolder() {
     if (!window.showDirectoryPicker) { showToast('مرورگر شما از این قابلیت پشتیبانی نمی‌کند', 'error'); return; }
     try {
         const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
         window._apBackupDirHandle = handle;
-        showToast('پوشه پشتیبان‌گیری متصل شد', 'success');
+        localStorage.setItem('ap_backup_folder_name', handle.name);
+        showToast('پوشه پشتیبان‌گیری متصل شد: ' + handle.name, 'success');
         autoBackupTick();
         switchView('backup');
     } catch (e) {
@@ -5248,13 +5432,8 @@ function exportBackup() {
     Object.entries(K).forEach(([name, key]) => { data[name] = JSON.parse(localStorage.getItem(key) || 'null'); });
     data.exportedAt = todayISO();
     data.app = 'حسابداری پلاس';
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     const stamp = new Date().toISOString().slice(0, 10);
-    a.href = url; a.download = `پشتیبان-حسابداری-${stamp}.json`; a.click();
-    URL.revokeObjectURL(url);
-    showToast('فایل پشتیبان دانلود شد', 'success');
+    saveJsonFile(`پشتیبان-حسابداری-${stamp}.json`, JSON.stringify(data, null, 2));
 }
 window.exportBackup = exportBackup;
 
@@ -5350,9 +5529,11 @@ const HELP_SECTIONS = [
     ['نکته مهم درباره ذخیره‌سازی', `این نرم‌افزار کاملاً محلی (client-side) است و اطلاعات فقط در همان مرورگر/دستگاه شما ذخیره می‌شود؛ هیچ سروری اطلاعات شما را دریافت نمی‌کند. برای همگام‌سازی بین چند دستگاه یا دسترسی چندکاربره آنلاین، نیاز به افزودن یک سرویس بک‌اند (مانند Firebase) دارد که در نسخه فعلی پیاده‌سازی نشده است.`]
 ];
 
+const APP_BUILD_LABEL = 'نسخه ۷ — بروزرسانی ۱۱ شهریور ۱۴۰۵';
 function renderHelp() {
     return `
     ${viewHeader('سیستم', 'راهنمای کامل برنامه', 'آموزش گام‌به‌گام استفاده از حسابداری پلاس برای کاربران تازه‌کار')}
+    <div class="build-stamp">🔖 ${esc(APP_BUILD_LABEL)} — اگر بعد از بروزرسانی، این عدد در برنامه‌تان همین را نشان نمی‌دهد، یعنی نسخه جدید هنوز روی گیت‌هاب/مرورگرتان جایگزین نشده؛ فایل‌ها را دوباره جایگزین و صفحه را کامل رفرش (Ctrl+Shift+R) کنید.</div>
     <button class="calc-btn" style="width:100%; margin-bottom:10px;" onclick="startAppTour()">🎯 شروع تور آموزشی نمایشی</button>
     <div class="section-box">
         ${HELP_SECTIONS.map((s, i) => `

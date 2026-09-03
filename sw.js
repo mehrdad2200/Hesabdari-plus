@@ -1,4 +1,4 @@
-const CACHE_NAME = "hesabdari-plus-v2";
+const CACHE_NAME = "hesabdari-plus-v7";
 const APP_SHELL = [
   './',
   './index.html',
