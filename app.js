@@ -2073,7 +2073,7 @@ function renderInvoiceEditorPage() {
             <input type="text" inputmode="numeric" value="${num(it.qty)}" title="تعداد" oninput="diUpdate(${idx},'qty',this.value)">
             <input type="text" inputmode="numeric" value="${num(it.price)}" title="قیمت واحد" oninput="diUpdate(${idx},'price',this.value)">
             <input type="text" value="${moneyPlain(num(it.qty) * num(it.price))}" title="جمع" disabled>
-            ${hasPartners ? `<button class="item-partner-toggle ${it.excludeFromPartnership ? 'excluded' : ''}" onclick="diToggleItemPartner(${idx})" type="button" title="${it.excludeFromPartnership ? 'این قلم مستثنا از شراکت است — برای اشتراک دوباره کلیک کنید' : 'این قلم با شرکا مشترک است — برای مستثنا کردن کلیک کنید'}">${it.excludeFromPartnership ? '🚫' : '🤝'}</button>` : ''}
+            ${hasPartners ? `<button class="item-partner-toggle ${it.excludeFromPartnership ? 'excluded' : ''}" onclick="diToggleItemPartner(${idx})" type="button" title="${it.excludeFromPartnership ? 'این قلم به‌طور کامل مستثناست (دستی) — برای بازگشت به حالت خودکار کلیک کنید' : 'خودکار: بر اساس تاریخ ورود کالا به انبار نسبت به تاریخ عضویت هر شریک تقسیم می‌شود — برای مستثنا کردن کامل و دستی کلیک کنید'}">${it.excludeFromPartnership ? '🚫' : '🤖'}</button>` : ''}
             <button class="item-remove" onclick="diRemoveRow(${idx})" title="حذف ردیف" type="button">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
@@ -2129,9 +2129,9 @@ function renderInvoiceEditorPage() {
             <div class="input-group"><label>مبلغ پرداخت‌شده</label><input type="text" inputmode="numeric" id="if_paid" value="${num(d.paidAmount)}" oninput="diRecalc()"></div>
         </div>
         <div class="input-group"><label>یادداشت فاکتور</label><textarea id="if_note" placeholder="اختیاری">${esc(d.note || '')}</textarea></div>
-        ${hasPartners ? `<p class="txt-caption">🤝/🚫 برای مشخص کردن این‌که کدام قلم کالا با شرکا مشترک است، از دکمه کنار هر ردیف کالا (بالا) استفاده کنید — مثلاً وقتی یک فاکتور هم کالای قبل از شراکت دارد هم بعد از آن، هر قلم را جداگانه علامت بزنید.
-            <a href="#" onclick="diMarkAllPartner(true); return false;" style="margin-inline-start:6px;">علامت‌گذاری همه به‌عنوان مشترک</a> ·
-            <a href="#" onclick="diMarkAllPartner(false); return false;">علامت‌گذاری همه به‌عنوان مستثنا</a>
+        ${hasPartners ? `<p class="txt-caption">🤖 سیستم خودش تشخیص می‌دهد هر کالا قبل یا بعد از عضویت هر شریک به انبار اضافه شده و بر همان اساس سود را تقسیم می‌کند — نیازی به کار دستی نیست. فقط اگر مورد خاصی هست که می‌خواهید کاملاً از شراکت خارج بماند، روی 🤖 کنار همان ردیف بزنید تا 🚫 شود.
+            <a href="#" onclick="diMarkAllPartner(true); return false;" style="margin-inline-start:6px;">بازگرداندن همه به حالت خودکار</a> ·
+            <a href="#" onclick="diMarkAllPartner(false); return false;">مستثنا کردن کامل همه اقلام</a>
         </p>` : ''}
         <div class="totals-box" id="invoiceTotalsBox">${invoiceTotalsHtml(subtotal, num(d.discountTotal), taxAmount, total, num(d.paidAmount), interestAmount)}</div>
     </div>
@@ -2706,7 +2706,8 @@ function openInvoiceView(id) {
         </div>
         <table class="report-table" style="margin-bottom:10px;">
             <thead><tr><th>کالا</th><th>تعداد</th><th>قیمت واحد</th><th>جمع</th>${dbRead(K.partners).length ? '<th>شراکت</th>' : ''}</tr></thead>
-            <tbody>${inv.items.map(it => `<tr><td>${it.isConsignment ? '★ ' : ''}${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(it.qty * it.price)}</td>${dbRead(K.partners).length ? `<td>${it.excludeFromPartnership ? '🚫 مستثنا' : '🤝 مشترک'}</td>` : ''}</tr>`).join('')}</tbody>
+            <tbody>${inv.items.map(it => `<tr><td>${it.isConsignment ? '★ ' : ''}${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(it.qty * it.price)}</td>${dbRead(K.partners).length ? `<td>${it.excludeFromPartnership ? '🚫 مستثنای دستی' : '🤖 خودکار (بر اساس تاریخ)'}</td>` : ''}</tr>`).join('')}</tbody>
+            ${dbRead(K.partners).length ? `<caption class="txt-caption" style="text-align:right; caption-side:bottom; padding-top:6px;">حالت «خودکار» یعنی سود این قلم بر اساس تاریخ ورود کالا به انبار نسبت به تاریخ عضویت هر شریک تقسیم می‌شود.</caption>` : ''}
         </table>
         <div class="totals-box">${invoiceTotalsHtml(inv.items.reduce((s, it) => s + it.qty * it.price, 0), inv.discountTotal, inv.taxAmount, inv.total, inv.paidAmount)}</div>
         ${inv.note ? `<div class="input-group" style="margin-top:12px;"><label>یادداشت</label><div class="txt-body">${esc(inv.note)}</div></div>` : ''}
@@ -4642,16 +4643,22 @@ function computePartnerShares() {
     }
 
     // Invoices are split per line-item (not per whole invoice), since a single invoice can mix
-    // pre-partnership stock with post-partnership stock — each item carries its own exclusion flag.
+    // pre-partnership stock with post-partnership stock. For each item we automatically detect
+    // which "side" it belongs to using the product's own stocking date (createdAt) — i.e. was
+    // this item already in inventory before a given partner joined, or was it brought in after?
+    // That auto-detected date (not the invoice date) is what era-matches it against each partner's
+    // join date. The manual 🚫 toggle remains available only as an explicit override for the rare
+    // exception that isn't captured by stocking date (fully excludes that item from every partner).
     dbRead(K.invoices).forEach(inv => {
         inv.items.forEach(it => {
             const p = products.find(x => x.id === it.productId);
             const cost = (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty);
             const itemProfit = num(it.qty) * num(it.price) - cost;
-            distribute(itemProfit, inv.date, it.excludeFromPartnership);
+            const stockDate = (p && p.createdAt) ? p.createdAt : (p ? earliestActivityDate() : inv.date); // catalogued products with no recorded stocking date are treated conservatively as pre-existing stock; free-text items fall back to the invoice date
+            distribute(itemProfit, stockDate, it.excludeFromPartnership);
         });
         // discount and any credit/check interest are invoice-level adjustments, applied using the
-        // invoice's overall flag (true only when every item on it is excluded)
+        // invoice's own date and its overall flag (true only when every item on it is excluded)
         const adjustment = num(inv.interestAmount) - num(inv.discountTotal);
         if (adjustment) distribute(adjustment, inv.date, inv.excludeFromPartnership);
     });
@@ -4684,7 +4691,8 @@ function renderPartners() {
             <option value="manual" ${s.partnershipMode === 'manual' ? 'selected' : ''}>دستی — خودم درصد هرکس را مشخص می‌کنم</option>
         </select>
     </div>
-    <p class="txt-caption" style="margin-bottom:10px;">هر شریک فقط در سود/زیانی که از «تاریخ ورود» خودش به بعد ایجاد شده سهیم است؛ دوره‌های قبل از ورود او جزو سهمش حساب نمی‌شود. علاوه بر این، هر فاکتور به‌طور جداگانه هم قابل «مستثنا کردن از شراکت» است (مثلاً کالای قدیمی که یک شریک نمی‌خواهد در آن سهیم باشد) — این گزینه در فرم هر فاکتور/خرید موجود است و در آن صورت سود/زیان آن مورد فقط برای صاحب فروشگاه محاسبه می‌شود.</p>
+    <p class="txt-caption" style="margin-bottom:10px;">هر شریک فقط در سود/زیانی که از «تاریخ ورود» خودش به بعد ایجاد شده سهیم است. برای فاکتورهای فروش، این کار به‌طور <strong>خودکار در سطح هر قلم کالا</strong> انجام می‌شود: سیستم تاریخ ثبت هر کالا در انبار را با تاریخ عضویت هر شریک مقایسه می‌کند — پس یک فاکتور می‌تواند هم‌زمان شامل کالای قدیمی (قبل از شراکت) و کالای جدید (بعد از شراکت) باشد و سود هرکدام جدا حساب شود، بدون نیاز به کار دستی. اگر مورد خاصی باشد که این تشخیص خودکار برایش صدق نکند، از دکمه کنار همان ردیف کالا در فرم فاکتور می‌توانید آن را به‌طور کامل و دستی از شراکت مستثنا کنید.</p>
+    <p class="txt-caption" style="margin-bottom:10px; color:var(--text-secondary);">⚠️ نکته: این تشخیص خودکار بر اساس «تاریخ اولین ثبت کالا در انبار» است، نه تاریخ هر بار شارژ مجدد موجودی؛ اگر کالایی را که از قبل در انبار داشتید، بعد از ورود شریک دوباره خرید و شارژ کردید، آن خرید جدید هنوز به‌طور خودکار به‌عنوان «بعد از شراکت» شناسایی نمی‌شود و باید با همان دکمه دستی مدیریت شود.</p>
     ${!dbRead(K.partners).some(p => p.isOwner) ? `<p class="txt-caption" style="color:var(--accent-amber); margin-bottom:10px;">⚠️ چون هنوز هیچ شریکی با علامت «صاحب فروشگاه» ثبت نشده، فاکتورهایی که «مستثنا از شراکت» علامت بخورند، سهم‌شان به هیچ‌کس اختصاص داده نمی‌شود (فقط از جمع سود شرکا کسر می‌شود). برای رفع این موضوع، از دکمه + یک شریک با گزینه «افزودن شریک» جدید بسازید تا صاحب فروشگاه هم به‌طور خودکار ثبت شود.</p>` : ''}
     <div class="search-bar">
         <div></div>
