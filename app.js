@@ -1060,10 +1060,10 @@ function generateSeedData(businessType) {
 /* ---------------------------------------------------------------------------
    Onboarding wizard (first run)
    ------------------------------------------------------------------------- */
-let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
+let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [], appMode: 'pro' };
 
 function startOnboarding() {
-    onboardState = { phase: 'intro', step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: false, hasPartners: false, percentMode: 'auto', partnersDraft: [] };
+    onboardState = { phase: 'intro', step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: false, hasPartners: false, percentMode: 'auto', partnersDraft: [], appMode: 'pro' };
     const overlay = document.getElementById('onboardOverlay');
     overlay.hidden = false;
     renderOnboard();
@@ -1130,6 +1130,18 @@ function renderOnboard() {
         </div>`;
     } else if (onboardState.step === 2) {
         body = `
+        <div class="input-group">
+            <label>استفاده شما از این برنامه به چه صورت است؟ *</label>
+            <div class="biz-type-grid" style="grid-template-columns:repeat(2,1fr);">
+                <div class="biz-type-card ${onboardState.appMode !== 'pro' ? 'active' : ''}" onclick="obSelectAppMode('simple')">
+                    <div class="biz-type-emoji">🏠</div><div class="biz-type-label">خانگی / مغازه کوچک (ساده)</div>
+                </div>
+                <div class="biz-type-card ${onboardState.appMode === 'pro' ? 'active' : ''}" onclick="obSelectAppMode('pro')">
+                    <div class="biz-type-emoji">🏢</div><div class="biz-type-label">حرفه‌ای (کسب‌وکار متوسط تا بزرگ)</div>
+                </div>
+            </div>
+            <p class="txt-caption" style="margin-top:6px;">در حالت ساده، بخش‌های پیشرفته (مثل شرکا و سهم سود) از منو مخفی می‌شوند تا محیط شلوغ نشود؛ همیشه از تنظیمات قابل تغییر است.</p>
+        </div>
         <div class="input-group">
             <label>شغل / صنف شما چیست؟ *</label>
             <div class="biz-type-grid">
@@ -1252,6 +1264,8 @@ window.obAddPartnerRow = obAddPartnerRow;
 
 function obSelectBiz(id) { onboardState.businessType = id; renderOnboard(); }
 window.obSelectBiz = obSelectBiz;
+function obSelectAppMode(mode) { onboardState.appMode = mode; renderOnboard(); }
+window.obSelectAppMode = obSelectAppMode;
 
 function obCollectStep() {
     if (onboardState.step === 1) {
@@ -1304,7 +1318,8 @@ function finishOnboarding() {
         taxPercent: onboardState.taxPercent,
         invoicePrefix: 'INV',
         onboarded: true,
-        partnershipMode: onboardState.hasPartners ? onboardState.percentMode : 'none'
+        partnershipMode: onboardState.hasPartners ? onboardState.percentMode : 'none',
+        appMode: onboardState.appMode || 'pro'
     });
     if (onboardState.loadDemo) {
         generateSeedData(onboardState.businessType);
@@ -1326,6 +1341,7 @@ function finishOnboarding() {
     }
     document.getElementById('onboardOverlay').hidden = true;
     refreshBrandChip();
+    applyAppModeVisibility();
     switchView('home');
     showToast('فروشگاه شما آماده شد!', 'success');
     setTimeout(showWelcomeTourPopup, 400);
@@ -1589,9 +1605,39 @@ function rerenderIfActive(name) {
 window.rerenderIfActive = rerenderIfActive;
 window.customerSearchTerm = '';
 
+function getCustomProvinces() {
+    const custom = dbRead('ap_custom_provinces');
+    return (Array.isArray(custom) ? custom : []); // array of {name, cities:[...]}
+}
+function allProvinceNames() {
+    const custom = getCustomProvinces().map(p => p.name);
+    return Object.keys(IRAN_PROVINCES).concat(custom.filter(n => !IRAN_PROVINCES[n]));
+}
+function citiesForProvince(name) {
+    if (IRAN_PROVINCES[name]) {
+        const extra = (getCustomProvinces().find(p => p.name === name) || {}).cities || [];
+        return IRAN_PROVINCES[name].concat(extra.filter(c => !IRAN_PROVINCES[name].includes(c)));
+    }
+    const custom = getCustomProvinces().find(p => p.name === name);
+    return custom ? custom.cities : [];
+}
+function addCustomCity(provinceName, cityName) {
+    const list = getCustomProvinces();
+    let entry = list.find(p => p.name === provinceName);
+    if (!entry) { entry = { name: provinceName, cities: [] }; list.push(entry); }
+    if (!entry.cities.includes(cityName)) entry.cities.push(cityName);
+    dbWrite('ap_custom_provinces', list);
+}
+function addCustomProvince(provinceName, cityName) {
+    const list = getCustomProvinces();
+    if (!list.find(p => p.name === provinceName)) list.push({ name: provinceName, cities: cityName ? [cityName] : [] });
+    else if (cityName) addCustomCity(provinceName, cityName);
+    dbWrite('ap_custom_provinces', list);
+}
+
 function openCustomerEditor(id) {
     const c = id ? dbRead(K.customers).find(x => x.id === id) : null;
-    const provNames = Object.keys(IRAN_PROVINCES);
+    const provNames = allProvinceNames();
     const html = `
         <div class="input-group"><label>نام مشتری *</label><input type="text" id="cf_name" value="${esc(c ? c.name : '')}" placeholder="نام و نام‌خانوادگی"></div>
         <div class="input-group"><label>شماره تماس</label><input type="text" id="cf_phone" value="${esc(c ? c.phone : '')}" placeholder="09xxxxxxxxx"></div>
@@ -1599,11 +1645,19 @@ function openCustomerEditor(id) {
             <div class="input-group"><label>استان</label>
                 <select id="cf_province" onchange="cfRefreshCities()">
                     ${provNames.map(p => `<option value="${esc(p)}" ${c && c.province === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}
+                    <option value="__newProvince__">+ افزودن استان و شهر جدید…</option>
                 </select>
             </div>
             <div class="input-group"><label>شهر</label>
-                <select id="cf_city"></select>
+                <select id="cf_city" onchange="cfOnCityChange()"></select>
             </div>
+        </div>
+        <div class="mini-form-grid" id="cf_newCityWrap" style="display:none;">
+            <div class="input-group"><label>نام شهر جدید</label><input type="text" id="cf_newCityName" placeholder="مثلاً: شهر جدید"></div>
+        </div>
+        <div class="mini-form-grid" id="cf_newProvinceWrap" style="display:none;">
+            <div class="input-group"><label>نام استان جدید</label><input type="text" id="cf_newProvinceName"></div>
+            <div class="input-group"><label>نام شهر (اختیاری)</label><input type="text" id="cf_newProvinceCityName"></div>
         </div>
         <div class="input-group"><label>آدرس</label><textarea id="cf_address" placeholder="آدرس (اختیاری)">${esc(c ? c.address : '')}</textarea></div>
         <div class="input-group"><label>یادداشت</label><textarea id="cf_notes" placeholder="یادداشت (اختیاری)">${esc(c ? c.notes : '')}</textarea></div>
@@ -1619,19 +1673,38 @@ function cfRefreshCities(presetCity) {
     const provSel = document.getElementById('cf_province');
     const citySel = document.getElementById('cf_city');
     if (!provSel || !citySel) return;
-    const cities = IRAN_PROVINCES[provSel.value] || [];
-    citySel.innerHTML = cities.map(c => `<option value="${esc(c)}" ${presetCity === c ? 'selected' : ''}>${esc(c)}</option>`).join('');
+    document.getElementById('cf_newProvinceWrap').style.display = (provSel.value === '__newProvince__') ? 'block' : 'none';
+    if (provSel.value === '__newProvince__') { citySel.innerHTML = ''; return; }
+    const cities = citiesForProvince(provSel.value);
+    citySel.innerHTML = cities.map(c => `<option value="${esc(c)}" ${presetCity === c ? 'selected' : ''}>${esc(c)}</option>`).join('') + `<option value="__newCity__">+ شهر دلخواه (در لیست نیست)…</option>`;
+    document.getElementById('cf_newCityWrap').style.display = 'none';
 }
 window.cfRefreshCities = cfRefreshCities;
+function cfOnCityChange() {
+    const citySel = document.getElementById('cf_city');
+    document.getElementById('cf_newCityWrap').style.display = (citySel.value === '__newCity__') ? 'block' : 'none';
+}
+window.cfOnCityChange = cfOnCityChange;
 
 function saveCustomer(id) {
     const name = document.getElementById('cf_name').value.trim();
     if (!name) { showToast('نام مشتری الزامی است', 'error'); return; }
+    let province = document.getElementById('cf_province').value;
+    let city = document.getElementById('cf_city').value;
+    if (province === '__newProvince__') {
+        province = document.getElementById('cf_newProvinceName').value.trim();
+        city = document.getElementById('cf_newProvinceCityName').value.trim();
+        if (!province) { showToast('نام استان جدید را وارد کنید', 'error'); return; }
+        addCustomProvince(province, city || null);
+    } else if (city === '__newCity__') {
+        city = document.getElementById('cf_newCityName').value.trim();
+        if (!city) { showToast('نام شهر جدید را وارد کنید', 'error'); return; }
+        addCustomCity(province, city);
+    }
     const list = dbRead(K.customers);
     const data = {
         name, phone: document.getElementById('cf_phone').value.trim(),
-        province: document.getElementById('cf_province').value,
-        city: document.getElementById('cf_city').value,
+        province, city,
         address: document.getElementById('cf_address').value.trim(),
         notes: document.getElementById('cf_notes').value.trim()
     };
@@ -1825,12 +1898,14 @@ function openProductEditor(id) {
             <div class="input-group"><label>دسته‌بندی</label>
                 <input type="text" id="pf_category" list="pf_category_list" value="${esc(p ? p.category : '')}" placeholder="مثلاً: پوشاک (یا دسته جدید تایپ کنید)">
                 <datalist id="pf_category_list">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+                <div class="field-hint">💡 برای دیدن لیست دسته‌های قبلی، روی فیلد دوبار کلیک کنید یا شروع به تایپ کنید</div>
             </div>
             <div class="input-group"><label>واحد شمارش</label>
                 <input type="text" id="pf_unit" list="pf_unit_list" value="${esc(p ? p.unit : 'عدد')}" placeholder="انتخاب کنید یا واحد دلخواه تایپ کنید">
                 <datalist id="pf_unit_list">
                     ${['عدد', 'کیلوگرم', 'گرم', 'بسته', 'کارتن', 'متر', 'سانتی‌متر', 'لیتر', 'میلی‌لیتر', 'جفت', 'دست', 'رول', 'شاخه', 'بطری', 'قوطی', 'ست'].map(u => `<option value="${u}">`).join('')}
                 </datalist>
+                <div class="field-hint">💡 دوبار کلیک کنید تا لیست واحدهای رایج نشان داده شود</div>
             </div>
             <div class="input-group"><label>قیمت خرید</label><input type="text" inputmode="numeric" id="pf_buy" value="${p ? num(p.buyPrice) : ''}" placeholder="0"></div>
             <div class="input-group"><label>قیمت فروش *</label><input type="text" inputmode="numeric" id="pf_sell" value="${p ? num(p.sellPrice) : ''}" placeholder="0"></div>
@@ -2929,6 +3004,7 @@ function renderPurchaseEditorPage() {
             <div class="input-group"><label>نام تأمین‌کننده *</label>
                 <input type="text" id="pf_supplier" list="pf_supplier_list" value="${esc(d.supplier)}" placeholder="نام فروشنده/عمده‌فروش" ondblclick="openSupplierPicker()">
                 <datalist id="pf_supplier_list">${Array.from(new Set(dbRead(K.purchases).map(p => p.supplier).filter(Boolean))).map(s => `<option value="${esc(s)}">`).join('')}</datalist>
+                <div class="field-hint">💡 روی فیلد دوبار کلیک کنید تا لیست تأمین‌کنندگان قبلی برای انتخاب باز شود</div>
             </div>
             ${jalaliDateField('pf_date', d.date || todayISO(), 'تاریخ خرید')}
         </div>
@@ -3218,6 +3294,10 @@ function openListPrintOptions(kind) {
         <div class="input-group"><label>تأمین‌کننده خاص (اختیاری)</label>
             <select id="lp_item"><option value="">همه تأمین‌کنندگان</option>${suppliers.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
         </div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('lp_from', '', 'از تاریخ (اختیاری)')}
+            ${jalaliDateField('lp_to', '', 'تا تاریخ (اختیاری)')}
+        </div>
         <div class="input-group"><label>مرتب‌سازی</label>
             <select id="lp_sort">
                 <option value="name">بر اساس نام</option>
@@ -3234,6 +3314,37 @@ function openListPrintOptions(kind) {
         <div class="settings-row" style="padding-inline:0;">
             <div class="settings-row-label">نمایش ریز اقلام هر فاکتور خرید</div>
             <label class="switch"><input type="checkbox" id="lp_detail"><span class="switch-slider"></span></label>
+        </div>`;
+    } else if (kind === 'expenses') {
+        const cats = getExpenseCategories();
+        const years = Array.from(new Set(dbRead(K.expenses).map(e => isoToJalaliParts(e.date).jy))).sort((a, b) => b - a);
+        const titles = Array.from(new Set(dbRead(K.expenses).map(e => e.title))).sort((a, b) => a.localeCompare(b, 'fa'));
+        body = `
+        <div class="input-group"><label>سال (اختیاری)</label>
+            <select id="lp_year"><option value="">همه سال‌ها</option>${years.map(y => `<option value="${y}">${String(y).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[d])}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>دسته‌بندی (اختیاری)</label>
+            <select id="lp_cat"><option value="">همه دسته‌ها</option>${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>عنوان هزینه خاص (اختیاری)</label>
+            <select id="lp_item"><option value="">همه عناوین</option>${titles.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>
+        </div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('lp_from', '', 'از تاریخ (اختیاری)')}
+            ${jalaliDateField('lp_to', '', 'تا تاریخ (اختیاری)')}
+        </div>
+        <div class="input-group"><label>مرتب‌سازی</label>
+            <select id="lp_sort">
+                <option value="dateDesc">تاریخ: جدیدترین اول</option>
+                <option value="dateAsc">تاریخ: قدیمی‌ترین اول</option>
+                <option value="amountDesc">بیشترین مبلغ</option>
+                <option value="amountAsc">کمترین مبلغ</option>
+                <option value="category">بر اساس دسته‌بندی</option>
+            </select>
+        </div>
+        <div class="settings-row" style="padding-inline:0;">
+            <div class="settings-row-label">تفکیک و جمع جزء به تفکیک دسته‌بندی</div>
+            <label class="switch"><input type="checkbox" id="lp_groupByCat" checked><span class="switch-slider"></span></label>
         </div>`;
     } else {
         printListGeneric(kind);
@@ -3312,6 +3423,9 @@ function printListGenericFinal(kind) {
     } else if (kind === 'purchases') {
         let list = dbRead(K.purchases).slice();
         if (itemFilter) list = list.filter(p => p.supplier === itemFilter);
+        const pFrom = getJalaliInputISO('lp_from'), pTo = getJalaliInputISO('lp_to');
+        if (pFrom) list = list.filter(p => new Date(p.date) >= new Date(pFrom));
+        if (pTo) list = list.filter(p => new Date(p.date) <= new Date(pTo));
         if (sort === 'amountDesc') list.sort((a, b) => num(b.total) - num(a.total));
         else if (sort === 'amountAsc') list.sort((a, b) => num(a.total) - num(b.total));
         else if (sort === 'debtDesc') list.sort((a, b) => (num(b.total) - num(b.paidAmount)) - (num(a.total) - num(a.paidAmount)));
@@ -3338,6 +3452,36 @@ function printListGenericFinal(kind) {
             }).join('');
             extraHtml = `<h4 style="margin-top:16px;">ارزان‌ترین تأمین‌کننده برای هر کالا</h4><table class="bill-table"><thead><tr><th>کالا</th><th>ارزان‌ترین تأمین‌کننده</th><th>قیمت</th></tr></thead><tbody>${compareRows || '<tr><td colspan="3">کالای مشترکی بین تأمین‌کنندگان یافت نشد</td></tr>'}</tbody></table>`;
         }
+    } else if (kind === 'expenses') {
+        let list = dbRead(K.expenses).slice();
+        const year = (document.getElementById('lp_year') || {}).value;
+        const cat = (document.getElementById('lp_cat') || {}).value;
+        if (year) list = list.filter(e => String(isoToJalaliParts(e.date).jy) === year);
+        if (cat) list = list.filter(e => e.category === cat);
+        if (itemFilter) list = list.filter(e => e.title === itemFilter);
+        const from = getJalaliInputISO('lp_from'), to = getJalaliInputISO('lp_to');
+        if (from) list = list.filter(e => new Date(e.date) >= new Date(from));
+        if (to) list = list.filter(e => new Date(e.date) <= new Date(to));
+        if (sort === 'dateAsc') list.sort((a, b) => new Date(a.date) - new Date(b.date));
+        else if (sort === 'amountDesc') list.sort((a, b) => num(b.amount) - num(a.amount));
+        else if (sort === 'amountAsc') list.sort((a, b) => num(a.amount) - num(b.amount));
+        else if (sort === 'category') list.sort((a, b) => (a.category || '').localeCompare(b.category || '', 'fa'));
+        else list.sort((a, b) => new Date(b.date) - new Date(a.date));
+        title = 'لیست هزینه‌ها';
+        headCols = ['عنوان', 'دسته', 'تاریخ', 'مبلغ'];
+        const total = list.reduce((s, e) => s + num(e.amount), 0);
+        if ((document.getElementById('lp_groupByCat') || {}).checked) {
+            const byCat = {};
+            list.forEach(e => { const k = e.category || 'بدون دسته'; (byCat[k] = byCat[k] || []).push(e); });
+            rows = Object.entries(byCat).map(([catName, items]) => {
+                const catTotal = items.reduce((s, e) => s + num(e.amount), 0);
+                const itemRows = items.map(e => `<tr><td class="text-cell">${esc(e.title)}</td><td>${esc(e.category || '-')}</td><td>${fmtDate(e.date)}</td><td>${moneyPlain(e.amount)}</td></tr>`).join('');
+                return `<tr><td colspan="4" style="font-weight:800; background:var(--surface-2);">📁 ${esc(catName)} (جمع: ${moneyPlain(catTotal)})</td></tr>${itemRows}`;
+            }).join('');
+        } else {
+            rows = list.map(e => `<tr><td class="text-cell">${esc(e.title)}</td><td>${esc(e.category || '-')}</td><td>${fmtDate(e.date)}</td><td>${moneyPlain(e.amount)}</td></tr>`).join('');
+        }
+        extraHtml = `<div class="totals-row grand" style="margin-top:8px;"><span>جمع کل (${list.length.toLocaleString(localeForDigits())} مورد)</span><span>${moneyPlain(total)}</span></div>`;
     }
 
     const html = `${billTemplateOpenTag()}${billHeaderHtml(title)}
@@ -3427,7 +3571,7 @@ function renderExpenses() {
     const all = dbRead(K.expenses).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
     const total = all.reduce((s, e) => s + num(e.amount), 0);
     return `
-    ${viewHeader('مالی', 'هزینه‌ها', `${all.length.toLocaleString(localeForDigits())} ثبت · جمع کل: ${money(total)}`, `<button class="nav-btn" onclick="printListGeneric('expenses')" title="چاپ لیست هزینه‌ها"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`)}
+    ${viewHeader('مالی', 'هزینه‌ها', `${all.length.toLocaleString(localeForDigits())} ثبت · جمع کل: ${money(total)}`, `<button class="nav-btn" onclick="openListPrintOptions('expenses')" title="چاپ لیست هزینه‌ها"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`)}
     <div class="search-bar">
         <div></div>
         <button class="fab-add" onclick="openExpenseEditor()" title="هزینه جدید">
@@ -3724,13 +3868,55 @@ function onCloudAuthChange(user) {
     if (currentView === 'settings' || currentView === 'backup') rerenderIfActive(currentView);
     if (user && wasSignedOut) autoReconcileCloud();
 }
+let _driveAccessToken = null;
 function signInWithGoogle() {
     if (!fbAuth) { showToast('اتصال به گوگل برقرار نشد؛ اتصال اینترنت را بررسی کنید', 'error'); return; }
     const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file'); // only for the optional "backup to Google Drive" button — لازم برای آپلود فایل پشتیبان
     setCloudStatus('syncing');
-    fbAuth.signInWithPopup(provider).catch((e) => { setCloudStatus('error'); showToast('ورود ناموفق بود: ' + (e.message || ''), 'error'); });
+    fbAuth.signInWithPopup(provider).then((result) => {
+        const cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
+        if (cred && cred.accessToken) _driveAccessToken = cred.accessToken;
+    }).catch((e) => { setCloudStatus('error'); showToast('ورود ناموفق بود: ' + (e.message || ''), 'error'); });
 }
 window.signInWithGoogle = signInWithGoogle;
+async function ensureDriveAccessToken() {
+    if (_driveAccessToken) return _driveAccessToken;
+    // The Drive-scoped access token only lives in memory for this tab session (Firebase doesn't
+    // persist raw Google OAuth tokens across reloads) — if we've lost it, silently re-prompt once.
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope('https://www.googleapis.com/auth/drive.file');
+    const result = await fbAuth.signInWithPopup(provider);
+    const cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
+    _driveAccessToken = cred && cred.accessToken;
+    return _driveAccessToken;
+}
+async function backupToGoogleDrive() {
+    if (!fbUser) { showToast('ابتدا با گوگل وارد شوید', 'error'); return; }
+    showToast('در حال آماده‌سازی و آپلود فایل...', 'success');
+    try {
+        const token = await ensureDriveAccessToken();
+        if (!token) { showToast('اجازه دسترسی به گوگل‌درایو داده نشد', 'error'); return; }
+        const data = collectFullExportData();
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `پشتیبان-حسابداری-${stamp}.json`;
+        const metadata = { name: filename, mimeType: 'application/json' };
+        const boundary = 'apboundary' + Date.now();
+        const body =
+            `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+            `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(data)}\r\n--${boundary}--`;
+        const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+            body
+        });
+        if (!res.ok) throw new Error('Drive upload failed: ' + res.status);
+        showToast('فایل پشتیبان با موفقیت در گوگل‌درایو شما آپلود شد', 'success');
+    } catch (e) {
+        showToast('آپلود به گوگل‌درایو ناموفق بود؛ دوباره تلاش کنید', 'error');
+    }
+}
+window.backupToGoogleDrive = backupToGoogleDrive;
 function signOutCloud() {
     if (fbAuth) fbAuth.signOut();
     showToast('از حساب گوگل خارج شدید (اطلاعات همین دستگاه دست‌نخورده باقی ماند)', 'success');
@@ -3747,6 +3933,27 @@ function applyImportedData(data) {
     Object.entries(K).forEach(([name, key]) => { if (data[name] !== undefined) localStorage.setItem(key, JSON.stringify(data[name])); });
 }
 function cloudDocRef() { return fbDb.collection('backups').doc(fbUser.uid); }
+function pullFromCloudConfirmed() {
+    cloudDocRef().get().then((snap) => {
+        if (!snap.exists) return;
+        try {
+            const data = JSON.parse((snap.data() || {}).data || '{}');
+            applyImportedData(data);
+            const cloudUpdated = (snap.data() || {}).updatedAt;
+            localStorage.setItem('ap_local_last_modified', cloudUpdated || todayISO());
+            localStorage.setItem('ap_last_cloud_sync', todayISO());
+            closeModal();
+            showToast('اطلاعات از حساب گوگل دریافت شد', 'success');
+            setTimeout(() => location.reload(), 700);
+        } catch (e) { showToast('خطا در دریافت اطلاعات ابری', 'error'); }
+    });
+}
+window.pullFromCloudConfirmed = pullFromCloudConfirmed;
+function pushToCloudConfirmed() {
+    pushToCloud().then(() => { closeModal(); showToast('این نسخه با موفقیت روی حساب گوگل ذخیره شد', 'success'); });
+}
+window.pushToCloudConfirmed = pushToCloudConfirmed;
+
 function pushToCloud() {
     if (!fbUser || !fbDb) return Promise.resolve();
     setCloudStatus('syncing');
@@ -3768,6 +3975,28 @@ function autoReconcileCloud() {
     if (sessionStorage.getItem('ap_reconciled_this_session')) { setCloudStatus('synced'); return; }
     sessionStorage.setItem('ap_reconciled_this_session', '1');
     setCloudStatus('syncing');
+
+    // If the person just manually restored a backup file on this device (see importBackup()),
+    // don't silently auto-pick — ask which copy to keep, since they made a deliberate choice.
+    if (localStorage.getItem('ap_manual_restore_pending_reconcile')) {
+        cloudDocRef().get().then((snap) => {
+            localStorage.removeItem('ap_manual_restore_pending_reconcile');
+            if (!snap.exists) { pushToCloud(); return; }
+            const cloudUpdated = (snap.data() || {}).updatedAt;
+            const html = `
+                <p class="txt-body" style="color:var(--text-secondary); line-height:1.9; margin-bottom:14px;">
+                    شما اخیراً یک فایل پشتیبان را دستی روی این دستگاه بازیابی کردید، و هم‌زمان یک نسخه دیگر هم روی حساب گوگل شما ذخیره شده (آخرین به‌روزرسانی: ${cloudUpdated ? fmtDateTime(cloudUpdated) : '-'}). کدام نسخه را نگه می‌دارید؟
+                </p>
+                <div class="action-grid">
+                    <button class="btn-action" onclick="pullFromCloudConfirmed()">⬇ نسخه گوگل‌درایو<br><span class="txt-caption">اطلاعات این دستگاه (فایل بازیابی‌شده) با نسخه ابری جایگزین می‌شود</span></button>
+                    <button class="calc-btn" onclick="pushToCloudConfirmed()">⬆ همین فایل بازیابی‌شده<br><span class="txt-caption">نسخه ابری با همین فایلی که الان بازیابی کردید جایگزین می‌شود</span></button>
+                </div>`;
+            openModal('کدام نسخه پشتیبان معتبر است؟', html);
+            setCloudStatus('synced');
+        }).catch(() => setCloudStatus('error'));
+        return;
+    }
+
     cloudDocRef().get().then((snap) => {
         if (!snap.exists) { pushToCloud(); return; }
         const cloudUpdated = (snap.data() || {}).updatedAt;
@@ -3832,6 +4061,29 @@ function onCloudChipClick() {
 }
 window.onCloudChipClick = onCloudChipClick;
 window.manualCloudSync = manualCloudSync;
+
+/* ---------------------------------------------------------------------------
+   Simple / Pro mode — lets a small home/shop user hide advanced features
+   (partnership & profit-sharing today; the supply-chain module later) so the
+   menu doesn't feel overwhelming. Switching modes only changes what's shown;
+   no data is ever deleted.
+   ------------------------------------------------------------------------- */
+const PRO_ONLY_VIEWS = ['partners'];
+function isProMode() { return (getSettings().appMode || 'pro') !== 'simple'; }
+function applyAppModeVisibility() {
+    const pro = isProMode();
+    PRO_ONLY_VIEWS.forEach(v => {
+        document.querySelectorAll(`.bn-item[data-view="${v}"]`).forEach(el => { el.style.display = pro ? '' : 'none'; });
+    });
+    if (!pro && PRO_ONLY_VIEWS.includes(currentView)) switchView('home');
+}
+function setAppMode(mode) {
+    saveSettings({ appMode: mode });
+    applyAppModeVisibility();
+    if (currentView === 'settings') rerenderIfActive('settings');
+    showToast(mode === 'simple' ? 'حالت ساده فعال شد' : 'حالت حرفه‌ای فعال شد', 'success');
+}
+window.setAppMode = setAppMode;
 
 const CASHBOX_TYPES = [['cash', 'صندوق نقدی مغازه'], ['pos', 'دستگاه کارت‌خوان'], ['bank', 'حساب بانکی'], ['check', 'چک']];
 const CURRENCY_LIST = [['تومان', 'تومان (واحد اصلی صندوق)'], ['دلار', 'دلار آمریکا (USD)'], ['یورو', 'یورو (EUR)'], ['پوند', 'پوند انگلیس (GBP)'], ['درهم', 'درهم امارات (AED)'], ['دینار عراق', 'دینار عراق (IQD)'], ['لیر ترکیه', 'لیر ترکیه (TRY)'], ['یوان', 'یوان چین (CNY)'], ['روبل', 'روبل روسیه (RUB)'], ['__custom__', 'ارز دلخواه…']];
@@ -4367,10 +4619,23 @@ function calcInflationProfit() {
 }
 window.calcInflationProfit = calcInflationProfit;
 
+let reportsFromDate = '', reportsToDate = '';
+function reportsApplyDateRange() {
+    reportsFromDate = getJalaliInputISO('rp_from') || '';
+    reportsToDate = getJalaliInputISO('rp_to') || '';
+    rerenderIfActive('reports');
+}
+window.reportsApplyDateRange = reportsApplyDateRange;
+function reportsClearDateRange() {
+    reportsFromDate = ''; reportsToDate = '';
+    rerenderIfActive('reports');
+}
+window.reportsClearDateRange = reportsClearDateRange;
 function renderReports() {
-    const invoices = dbRead(K.invoices);
-    const purchases = dbRead(K.purchases);
-    const expenses = dbRead(K.expenses);
+    const inRange = (d) => (!reportsFromDate || new Date(d) >= new Date(reportsFromDate)) && (!reportsToDate || new Date(d) <= new Date(reportsToDate));
+    const invoices = dbRead(K.invoices).filter(i => inRange(i.date));
+    const purchases = dbRead(K.purchases).filter(p => inRange(p.date));
+    const expenses = dbRead(K.expenses).filter(e => inRange(e.date));
     const products = dbRead(K.products);
     const settings = getSettings();
     const invoiceCogs = (inv) => inv.items.reduce((s2, it) => { const p = products.find(x => x.id === it.productId); return s2 + (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); }, 0);
@@ -4378,9 +4643,10 @@ function renderReports() {
     const totalSales = invoices.reduce((s, i) => s + num(i.total), 0);
     const totalCOGS = invoices.reduce((s, i) => s + invoiceCogs(i), 0);
     const totalExpenses = expenses.reduce((s, e) => s + num(e.amount), 0);
-    const totalPayroll = dbRead(K.payroll).reduce((s, p) => s + num(p.amount), 0);
+    const totalPayroll = dbRead(K.payroll).filter(p => inRange(p.date)).reduce((s, p) => s + num(p.amount), 0);
+    const stocktakeImpact = stocktakeProfitImpact(reportsFromDate || null, reportsToDate ? new Date(new Date(reportsToDate).getTime() + 86400000).toISOString() : null);
     const grossProfit = totalSales - totalCOGS;
-    const netProfit = grossProfit - totalExpenses - totalPayroll;
+    const netProfit = grossProfit - totalExpenses - totalPayroll + stocktakeImpact;
     const avgSale = invoices.length ? totalSales / invoices.length : 0;
 
     // Monthly sales (last 6 months)
@@ -4425,6 +4691,19 @@ function renderReports() {
 
     return `
     ${viewHeader('مالی', 'گزارش‌ها', 'تحلیل فروش، سود و عملکرد فروشگاه')}
+
+    <div class="section-box">
+        <div class="section-title">بازه زمانی گزارش</div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('rp_from', reportsFromDate, 'از تاریخ')}
+            ${jalaliDateField('rp_to', reportsToDate, 'تا تاریخ')}
+        </div>
+        <div class="action-grid">
+            <button class="btn-action" onclick="reportsApplyDateRange()">اعمال بازه</button>
+            <button class="btn-action" onclick="reportsClearDateRange()">پاک کردن (همه‌ی زمان‌ها)</button>
+        </div>
+        ${(reportsFromDate || reportsToDate) ? `<p class="txt-caption" style="margin-top:8px;">در حال نمایش: ${reportsFromDate ? 'از ' + fmtDate(reportsFromDate) : 'از ابتدا'} ${reportsToDate ? 'تا ' + fmtDate(reportsToDate) : 'تا امروز'}</p>` : ''}
+    </div>
 
     <div class="stat-grid">
         <div class="stat-card"><div class="stat-val">${money(totalSales)}</div><div class="stat-label">جمع کل فروش</div></div>
@@ -4475,6 +4754,20 @@ function renderReports() {
         <div class="section-title">خلاصه خرید از تأمین‌کنندگان</div>
         <div class="totals-row"><span>جمع کل خرید</span><span>${moneyPlain(purchases.reduce((s, p) => s + num(p.total), 0))}</span></div>
         <div class="totals-row"><span>بدهی باقی‌مانده به تأمین‌کنندگان</span><span>${moneyPlain(purchases.reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0))}</span></div>
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">📦 اثر انبارگردانی بر سود و زیان</div>
+        ${dbRead(K.stocktakes).length ? `
+        <div class="totals-row grand"><span>مجموع اثر همه انبارگردانی‌ها</span><span style="color:${stocktakeProfitImpact() >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${moneyPlain(stocktakeProfitImpact())}</span></div>
+        ${dbRead(K.stocktakes).slice().sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5).map(t => {
+            const impact = (t.diffs || []).reduce((s, d) => s + num(d.valueImpact), 0);
+            return `<div class="list-item"><div class="list-item-row">
+                <div><div class="list-item-title">انبارگردانی ${fmtDate(t.date)}</div><div class="list-item-sub">${(t.diffs || []).length.toLocaleString(localeForDigits())} کالا اصلاح شد</div></div>
+                <div class="list-item-title" style="color:${impact >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)'}">${impact >= 0 ? '+' : ''}${moneyPlain(impact)}</div>
+            </div></div>`;
+        }).join('')}
+        ` : `<div class="empty-state">هنوز انبارگردانی‌ای ثبت نشده است.</div>`}
     </div>
 
     <div class="section-box">
@@ -4630,7 +4923,8 @@ function computeStoreNetProfit(fromDate, toDate) {
     const totalCOGS = invIn.reduce((s, i) => s + invoiceCogs(i), 0);
     const totalExpenses = expIn.reduce((s, e) => s + num(e.amount), 0);
     const totalPayroll = payIn.reduce((s, p) => s + num(p.amount), 0);
-    return totalSales - totalCOGS - totalExpenses - totalPayroll;
+    const stocktakeImpact = stocktakeProfitImpact(fromDate, toDate);
+    return totalSales - totalCOGS - totalExpenses - totalPayroll + stocktakeImpact;
 }
 function earliestActivityDate() {
     const dates = [];
@@ -4695,6 +4989,7 @@ function computePartnerShares() {
     });
     dbRead(K.expenses).forEach(e => distribute(-num(e.amount), e.date, e.excludeFromPartnership));
     dbRead(K.payroll).forEach(p => distribute(-num(p.amount), p.date, p.excludeFromPartnership));
+    dbRead(K.stocktakes).forEach(t => distribute((t.diffs || []).reduce((s, d) => s + num(d.valueImpact), 0), t.date, false));
     return shares;
 }
 function partnerPercentDisplay(p, partners) {
@@ -5061,19 +5356,78 @@ function settleSupplier(name) {
 window.settleSupplier = settleSupplier;
 
 function printSettlements() {
-    const customers = dbRead(K.customers).map(c => ({ name: c.name, bal: customerBalance(c.id) })).filter(c => c.bal > 0).sort((a, b) => b.bal - a.bal);
-    const suppliers = {};
-    dbRead(K.purchases).forEach(p => { const r = Math.max(0, num(p.total) - num(p.paidAmount)); if (r > 0) suppliers[p.supplier] = (suppliers[p.supplier] || 0) + r; });
-    const supplierList = Object.entries(suppliers).sort((a, b) => b[1] - a[1]);
-    const html = `${billTemplateOpenTag()}${billHeaderHtml('گزارش بدهکاران و طلبکاران')}
-        <div class="section-title">مشتریان بدهکار</div>
-        <table class="bill-table"><thead><tr><th>مشتری</th><th>مانده بدهی</th></tr></thead><tbody>${customers.map(c => `<tr><td class="text-cell">${esc(c.name)}</td><td>${moneyPlain(c.bal)}</td></tr>`).join('') || '<tr><td colspan="2">-</td></tr>'}</tbody></table>
-        <div class="section-title" style="margin-top:14px;">بدهی به تأمین‌کنندگان</div>
-        <table class="bill-table"><thead><tr><th>تأمین‌کننده</th><th>مانده بدهی</th></tr></thead><tbody>${supplierList.map(([n, a]) => `<tr><td class="text-cell">${esc(n)}</td><td>${moneyPlain(a)}</td></tr>`).join('') || '<tr><td colspan="2">-</td></tr>'}</tbody></table>
-    </div>${printFooterButton()}`;
-    openModal('پیش‌نمایش چاپ — بدهکاران و طلبکاران', html);
+    const html = `
+        <div class="input-group"><label>مرتب‌سازی مشتریان بدهکار</label>
+            <select id="ps_custSort">
+                <option value="amountDesc">بیشترین بدهی</option>
+                <option value="amountAsc">کمترین بدهی</option>
+                <option value="name">بر اساس نام</option>
+            </select>
+        </div>
+        <div class="input-group"><label>مرتب‌سازی تأمین‌کنندگان</label>
+            <select id="ps_supSort">
+                <option value="amountDesc">بیشترین بدهی</option>
+                <option value="amountAsc">کمترین بدهی</option>
+                <option value="name">بر اساس نام</option>
+            </select>
+        </div>
+        <div class="settings-row" style="padding-inline:0;">
+            <div class="settings-row-label">ریز فاکتورهای هر مشتری/تأمین‌کننده (جزء‌به‌جزء)</div>
+            <label class="switch"><input type="checkbox" id="ps_detail" checked><span class="switch-slider"></span></label>
+        </div>
+        <button class="calc-btn" style="width:100%; margin-top:10px;" onclick="printSettlementsFinal()">🖨 چاپ</button>
+    `;
+    openModal('تنظیمات چاپ بدهکاران و طلبکاران', html);
 }
 window.printSettlements = printSettlements;
+function printSettlementsFinal() {
+    const custSort = document.getElementById('ps_custSort').value;
+    const supSort = document.getElementById('ps_supSort').value;
+    const detail = document.getElementById('ps_detail').checked;
+
+    let customers = dbRead(K.customers).map(c => ({ id: c.id, name: c.name, phone: c.phone, bal: customerBalance(c.id) })).filter(c => c.bal > 0);
+    if (custSort === 'amountAsc') customers.sort((a, b) => a.bal - b.bal);
+    else if (custSort === 'name') customers.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+    else customers.sort((a, b) => b.bal - a.bal);
+
+    const custRows = customers.map(c => {
+        const head = `<tr><td class="text-cell" style="font-weight:800;">${esc(c.name)}</td><td>${esc(c.phone || '-')}</td><td>${moneyPlain(c.bal)}</td></tr>`;
+        if (!detail) return head;
+        const unpaidInvoices = dbRead(K.invoices).filter(i => i.customerId === c.id && num(i.total) - num(i.paidAmount) > 0).sort((a, b) => new Date(a.date) - new Date(b.date));
+        const detailRows = unpaidInvoices.map(i => `<tr><td colspan="2" class="text-cell" style="padding-inline-start:20px; color:var(--text-secondary);">فاکتور #${i.number} — ${fmtDate(i.date)} — کل: ${moneyPlain(i.total)} — پرداخت‌شده: ${moneyPlain(i.paidAmount)}</td><td>${moneyPlain(num(i.total) - num(i.paidAmount))}</td></tr>`).join('');
+        return head + detailRows;
+    }).join('');
+    const custTotal = customers.reduce((s, c) => s + c.bal, 0);
+
+    const suppliers = {};
+    dbRead(K.purchases).forEach(p => { const r = Math.max(0, num(p.total) - num(p.paidAmount)); if (r > 0) { suppliers[p.supplier] = suppliers[p.supplier] || { total: 0, items: [] }; suppliers[p.supplier].total += r; suppliers[p.supplier].items.push(p); } });
+    let supplierList = Object.entries(suppliers);
+    if (supSort === 'amountAsc') supplierList.sort((a, b) => a[1].total - b[1].total);
+    else if (supSort === 'name') supplierList.sort((a, b) => a[0].localeCompare(b[0], 'fa'));
+    else supplierList.sort((a, b) => b[1].total - a[1].total);
+
+    const supRows = supplierList.map(([name, info]) => {
+        const head = `<tr><td class="text-cell" style="font-weight:800;">${esc(name)}</td><td>${moneyPlain(info.total)}</td></tr>`;
+        if (!detail) return head;
+        const detailRows = info.items.filter(p => num(p.total) - num(p.paidAmount) > 0).sort((a, b) => new Date(a.date) - new Date(b.date))
+            .map(p => `<tr><td class="text-cell" style="padding-inline-start:20px; color:var(--text-secondary);">خرید #${p.number} — ${fmtDate(p.date)} — کل: ${moneyPlain(p.total)} — پرداخت‌شده: ${moneyPlain(p.paidAmount)}</td><td>${moneyPlain(num(p.total) - num(p.paidAmount))}</td></tr>`).join('');
+        return head + detailRows;
+    }).join('');
+    const supTotal = supplierList.reduce((s, [, info]) => s + info.total, 0);
+
+    const html = `${billTemplateOpenTag()}${billHeaderHtml('گزارش بدهکاران و طلبکاران')}
+        <div class="section-title">مشتریان بدهکار</div>
+        <table class="bill-table"><thead><tr><th>مشتری</th><th>تلفن</th><th>مانده بدهی</th></tr></thead><tbody>${custRows || '<tr><td colspan="3">-</td></tr>'}</tbody></table>
+        <div class="totals-row grand" style="margin-top:6px;"><span>جمع کل مطالبات</span><span>${moneyPlain(custTotal)}</span></div>
+        <div class="section-title" style="margin-top:18px;">بدهی به تأمین‌کنندگان</div>
+        <table class="bill-table"><thead><tr><th>تأمین‌کننده</th><th>مانده بدهی</th></tr></thead><tbody>${supRows || '<tr><td colspan="2">-</td></tr>'}</tbody></table>
+        <div class="totals-row grand" style="margin-top:6px;"><span>جمع کل بدهی به تأمین‌کنندگان</span><span>${moneyPlain(supTotal)}</span></div>
+        <div class="txt-caption" style="margin-top:10px;">تاریخ چاپ: ${fmtDateTime(todayISO())}</div>
+    </div>${printFooterButton()}`;
+    closeModal();
+    openModal('پیش‌نمایش چاپ — بدهکاران و طلبکاران', html);
+}
+window.printSettlementsFinal = printSettlementsFinal;
 
 /* ---------------------------------------------------------------------------
    Warehousing / physical stock count (انبارگردانی)
@@ -5120,7 +5474,7 @@ function applyStocktake() {
         const el = document.getElementById('st_' + p.id);
         if (!el) return;
         const counted = num(el.value);
-        if (counted !== num(p.qty)) diffs.push({ name: p.name, before: p.qty, after: counted });
+        if (counted !== num(p.qty)) diffs.push({ name: p.name, before: p.qty, after: counted, buyPrice: num(p.buyPrice), valueImpact: (counted - num(p.qty)) * num(p.buyPrice) });
         p.qty = counted;
     });
     dbWrite(K.products, products);
@@ -5128,10 +5482,18 @@ function applyStocktake() {
     takes.push({ id: uid('stk'), date: todayISO(), diffs });
     dbWrite(K.stocktakes, takes);
     autoBackupTick();
-    showToast(`انبارگردانی ثبت شد (${diffs.length.toLocaleString(localeForDigits())} مورد اصلاح شد)`, 'success');
+    const netImpact = diffs.reduce((s, d) => s + d.valueImpact, 0);
+    showToast(`انبارگردانی ثبت شد (${diffs.length.toLocaleString(localeForDigits())} مورد اصلاح شد، اثر بر سود: ${moneyPlain(netImpact)})`, 'success');
     switchView('products');
 }
 window.applyStocktake = applyStocktake;
+/* Sum of all stocktake (shrinkage/overage) value-adjustments within an optional date range —
+   feeds into the profit/loss report so a shortage found during a physical count actually shows
+   up as a loss (and a surplus as a gain), not just silently corrects the qty on record. */
+function stocktakeProfitImpact(fromDate, toDate) {
+    const inRange = (d) => (!fromDate || new Date(d) >= new Date(fromDate)) && (!toDate || new Date(d) < new Date(toDate));
+    return dbRead(K.stocktakes).filter(t => inRange(t.date)).reduce((s, t) => s + (t.diffs || []).reduce((s2, d) => s2 + num(d.valueImpact), 0), 0);
+}
 
 function exportReportCsv() {
     const invoices = dbRead(K.invoices);
@@ -5177,6 +5539,19 @@ function renderSettings() {
                 ورود با گوگل
             </button>
         `}
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">حالت نمایش برنامه</div>
+        <p class="txt-caption" style="margin-bottom:10px;">در حالت ساده، بخش‌های پیشرفته (شرکا و سهم سود، و در آینده ماژول زنجیره تأمین) از منو مخفی می‌شوند تا محیط شلوغ نشود. اطلاعات ثبت‌شده در هیچ حالتی حذف نمی‌شود.</p>
+        <div class="biz-type-grid" style="grid-template-columns:repeat(2,1fr);">
+            <div class="biz-type-card ${!isProMode() ? 'active' : ''}" onclick="setAppMode('simple')">
+                <div class="biz-type-emoji">🏠</div><div class="biz-type-label">ساده</div>
+            </div>
+            <div class="biz-type-card ${isProMode() ? 'active' : ''}" onclick="setAppMode('pro')">
+                <div class="biz-type-emoji">🏢</div><div class="biz-type-label">حرفه‌ای</div>
+            </div>
+        </div>
     </div>
 
     <div class="section-box">
@@ -5409,10 +5784,21 @@ function renderBackup() {
             </select>
         </div>
         <p class="txt-body" style="margin:10px 0; color:var(--text-secondary);">علاوه بر این، در مرورگرهای مبتنی بر Chromium (Chrome، Edge، Brave) می‌توانید یک پوشه واقعی روی سیستم خود انتخاب کنید تا یک فایل پشتیبان به‌طور خودکار و بی‌صدا در همان پوشه هم به‌روزرسانی شود — این یک قابلیت اضافه و اختیاری است، نه جایگزین پشتیبان خودکار داخلی بالا.</p>
+        <div class="build-stamp" style="border-color:var(--accent-amber);">
+            💡 <strong>پیشنهاد محل ذخیره:</strong> ترجیحاً پوشه‌ای مثل <code>D:\Hesabdari-plus</code> — یعنی روی یک درایو غیر از درایوی که ویندوز/سیستم‌عامل روی آن نصب است — انتخاب کنید (نه پوشه‌ای داخل درایو C). این‌طور اگر روزی سیستم‌عامل از بین برود یا نیاز به نصب مجدد ویندوز باشد، فایل پشتیبان شما دست‌نخورده باقی می‌ماند. توجه: مرورگر به دلایل امنیتی اجازه انتخاب برخی پوشه‌های سیستمی (مثل خود درایو C یا پوشه Windows/System32) را نمی‌دهد؛ اگر پوشه‌ای که انتخاب کردید قبول نشد یا خطا داد، یعنی همان پوشه سیستمی بوده — یک پوشه دیگر (ترجیحاً روی درایو دیگر) انتخاب کنید. <br>📱 در نسخه موبایل/گوشی، پوشه <code>Download</code> دستگاه به‌طور طبیعی محل ذخیره فایل‌های دانلودی خواهد بود.
+        </div>
         ${hasFsSupport ? `
             ${savedFolderName ? `<p class="txt-caption" style="margin-bottom:8px;">📁 پوشه انتخاب‌شده: <strong>${esc(savedFolderName)}</strong>${!folderLinked ? ' — برای فعال‌سازی مجدد در این جلسه، دوباره متصل کنید' : ''}</p>` : ''}
             <button class="btn-action" style="width:100%;" onclick="linkBackupFolder()">${folderLinked ? '✓ پوشه پشتیبان‌گیری متصل است — تغییر پوشه' : '📁 انتخاب پوشه پشتیبان‌گیری خودکار (اختیاری)'}</button>
         ` : `<p class="txt-caption">این مرورگر خاص از اتصال مستقیم به یک پوشه روی سیستم پشتیبانی نمی‌کند (این محدودیت خود مرورگر است)؛ پشتیبان خودکار داخلی بالا در این مرورگر هم به‌طور کامل فعال است، فقط برای گرفتن فایل از دکمه دانلود دستی زیر استفاده کنید.</p>`}
+    </div>
+
+    <div class="section-box">
+        <div class="section-title">☁️ پشتیبان‌گیری روی گوگل‌درایو</div>
+        ${fbUser ? `
+            <p class="txt-body" style="color:var(--text-secondary); margin-bottom:10px;">یک فایل پشتیبان JSON مستقیماً در حساب گوگل‌درایو شما (${esc(fbUser.email)}) آپلود می‌شود — جدا و اضافه بر همگام‌سازی خودکار اطلاعات که از قبل فعال است.</p>
+            <button class="btn-action" style="width:100%;" onclick="backupToGoogleDrive()">⬆ آپلود نسخه پشتیبان به گوگل‌درایو</button>
+        ` : `<p class="txt-caption">برای استفاده از این گزینه، ابتدا از بالای صفحه یا تنظیمات، با حساب گوگل وارد شوید.</p>`}
     </div>
 
     <div class="section-box">
@@ -5510,6 +5896,10 @@ function importBackup() {
             Object.entries(K).forEach(([name, key]) => {
                 if (data[name] !== undefined) localStorage.setItem(key, JSON.stringify(data[name]));
             });
+            // Flag this so that if Google sign-in happens right after, autoReconcileCloud() asks
+            // which copy to keep instead of silently auto-picking — since the person just made a
+            // deliberate choice by restoring this specific file, we shouldn't silently overwrite it.
+            localStorage.setItem('ap_manual_restore_pending_reconcile', '1');
             showToast('اطلاعات با موفقیت بازیابی شد', 'success');
             setTimeout(() => location.reload(), 900);
         } catch (err) {
@@ -5591,7 +5981,7 @@ const HELP_SECTIONS = [
     ['نکته مهم درباره ذخیره‌سازی', `این نرم‌افزار کاملاً محلی (client-side) است و اطلاعات فقط در همان مرورگر/دستگاه شما ذخیره می‌شود؛ هیچ سروری اطلاعات شما را دریافت نمی‌کند. برای همگام‌سازی بین چند دستگاه یا دسترسی چندکاربره آنلاین، نیاز به افزودن یک سرویس بک‌اند (مانند Firebase) دارد که در نسخه فعلی پیاده‌سازی نشده است.`]
 ];
 
-const APP_BUILD_LABEL = 'نسخه ۸ — بروزرسانی ۱۳ شهریور ۱۴۰۵ (رفع هنگ ورود گوگل + کش‌بریکینگ)';
+const APP_BUILD_LABEL = 'نسخه ۹ — بروزرسانی ۱۴ شهریور ۱۴۰۵ (باگ‌های بخش ۱ + حالت ساده/حرفه‌ای)';
 function renderHelp() {
     return `
     ${viewHeader('سیستم', 'راهنمای کامل برنامه', 'آموزش گام‌به‌گام استفاده از حسابداری پلاس برای کاربران تازه‌کار')}
@@ -5708,5 +6098,6 @@ window.onload = function () {
     refreshBackupLogCache();
     initFullscreenButton();
     refreshCloudStatusChip();
+    applyAppModeVisibility();
     initFirebase();
 };
