@@ -943,7 +943,7 @@ const DEMO_CUSTOMER_NAMES = [
 const DEMO_SUPPLIER_NAMES = [
     'پخش پارس تجارت', 'بازرگانی نوین کالا', 'شرکت توزیع البرز', 'عمده‌فروشی مرکزی', 'وارداتی ایران‌کالا'
 ];
-const EXPENSE_CATEGORIES_DEFAULT = ['اجاره مغازه', 'قبض برق', 'قبض آب و گاز', 'حقوق پرسنل', 'تبلیغات', 'تعمیر و نگهداری', 'حمل و نقل', 'متفرقه'];
+const EXPENSE_CATEGORIES_DEFAULT = ['اجاره مغازه', 'قبض برق', 'قبض آب و گاز', 'حقوق پرسنل', 'بیمه پرسنل', 'تبلیغات', 'تعمیر و نگهداری', 'حمل و نقل', 'متفرقه'];
 function getExpenseCategories() {
     const custom = dbRead('ap_expense_categories');
     const merged = EXPENSE_CATEGORIES_DEFAULT.concat((Array.isArray(custom) ? custom : []).filter(c => !EXPENSE_CATEGORIES_DEFAULT.includes(c)));
@@ -1826,7 +1826,12 @@ function openProductEditor(id) {
                 <input type="text" id="pf_category" list="pf_category_list" value="${esc(p ? p.category : '')}" placeholder="مثلاً: پوشاک (یا دسته جدید تایپ کنید)">
                 <datalist id="pf_category_list">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
             </div>
-            <div class="input-group"><label>واحد شمارش</label><input type="text" id="pf_unit" value="${esc(p ? p.unit : 'عدد')}" placeholder="عدد / کیلوگرم / بسته"></div>
+            <div class="input-group"><label>واحد شمارش</label>
+                <input type="text" id="pf_unit" list="pf_unit_list" value="${esc(p ? p.unit : 'عدد')}" placeholder="انتخاب کنید یا واحد دلخواه تایپ کنید">
+                <datalist id="pf_unit_list">
+                    ${['عدد', 'کیلوگرم', 'گرم', 'بسته', 'کارتن', 'متر', 'سانتی‌متر', 'لیتر', 'میلی‌لیتر', 'جفت', 'دست', 'رول', 'شاخه', 'بطری', 'قوطی', 'ست'].map(u => `<option value="${u}">`).join('')}
+                </datalist>
+            </div>
             <div class="input-group"><label>قیمت خرید</label><input type="text" inputmode="numeric" id="pf_buy" value="${p ? num(p.buyPrice) : ''}" placeholder="0"></div>
             <div class="input-group"><label>قیمت فروش *</label><input type="text" inputmode="numeric" id="pf_sell" value="${p ? num(p.sellPrice) : ''}" placeholder="0"></div>
             <div class="input-group"><label>موجودی فعلی</label><input type="text" inputmode="numeric" id="pf_qty" value="${p ? num(p.qty) : 0}" placeholder="0"></div>
@@ -2195,22 +2200,23 @@ function invoiceTotalsHtml(subtotal, discount, tax, total, paid, interest) {
 }
 
 /* -------- Payment-method detail sub-forms (shared by sale invoice & purchase forms) -------- */
-function paymentDetailsHtml(prefix, method, pd, allowExisting) {
+function paymentDetailsHtml(prefix, method, pd, allowExisting, direction) {
     pd = pd || {};
     allowExisting = allowExisting !== false;
+    direction = direction || 'in'; // 'in' = we are receiving (sale/settleCustomer), 'out' = we are paying (purchase/payroll/settleSupplier)
     const banks = dbRead(K.bankAccounts);
     if (method === 'cash') {
         return `<div class="pm-detail-box"><span class="badge badge-emerald">💵 از صندوق نقدی مغازه پرداخت/دریافت می‌شود</span></div>`;
     }
     if (method === 'card') {
         return `<div class="pm-detail-box">
-            <div class="input-group"><label>نوع</label>
+            ${direction === 'out' ? '' : `<div class="input-group"><label>نوع</label>
                 <select id="${prefix}_cardType">
                     <option value="pos" ${pd.cardType !== 'transfer' ? 'selected' : ''}>دستگاه کارت‌خوان</option>
                     <option value="transfer" ${pd.cardType === 'transfer' ? 'selected' : ''}>کارت به کارت</option>
                 </select>
-            </div>
-            <div class="input-group"><label>واریز به حساب</label>
+            </div>`}
+            <div class="input-group"><label>${direction === 'out' ? 'پرداخت از حساب' : 'واریز به حساب'}</label>
                 <select id="${prefix}_bankId">
                     <option value="">— انتخاب نشده —</option>
                     ${banks.map(b => `<option value="${b.id}" ${pd.bankAccountId === b.id ? 'selected' : ''}>${esc(b.bankName)} — ${esc(b.title)}</option>`).join('')}
@@ -2796,10 +2802,9 @@ function printInvoice(id) {
         <table class="bill-table">
             <thead><tr><th>ردیف</th><th>شرح کالا</th><th>تعداد</th><th>قیمت واحد</th><th>مبلغ کل</th></tr></thead>
             <tbody>
-                ${inv.items.map((it, i) => `<tr><td>${(i + 1).toLocaleString(localeForDigits())}</td><td class="text-cell">${it.isConsignment ? '★ ' : ''}${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(it.qty * it.price)}</td></tr>`).join('')}
+                ${inv.items.map((it, i) => `<tr><td>${(i + 1).toLocaleString(localeForDigits())}</td><td class="text-cell">${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td><td>${moneyPlain(it.qty * it.price)}</td></tr>`).join('')}
             </tbody>
         </table>
-        ${inv.items.some(it => it.isConsignment) ? `<div class="txt-caption">★ کالای امانی از همکار</div>` : ''}
         <div class="bill-totals">
             <div class="totals-row"><span>جمع کل کالاها</span><span>${moneyPlain(inv.items.reduce((s2, it) => s2 + it.qty * it.price, 0))} ${esc(currencyLabel())}</span></div>
             ${inv.discountTotal ? `<div class="totals-row"><span>تخفیف</span><span>−${moneyPlain(inv.discountTotal)}</span></div>` : ''}
@@ -2930,7 +2935,7 @@ function renderPurchaseEditorPage() {
         <div class="input-group"><label>روش پرداخت</label>
             <select id="pf_paymethod" onchange="dpOnPaymentMethodChange()">${PAYMENT_METHODS.map(([v, l]) => `<option value="${v}" ${(d.paymentMethod || 'cash') === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
         </div>
-        <div id="pf_paymentDetailsBox">${paymentDetailsHtml('pf', d.paymentMethod || 'cash', d.paymentDetails)}</div>
+        <div id="pf_paymentDetailsBox">${paymentDetailsHtml('pf', d.paymentMethod || 'cash', d.paymentDetails, true, 'out')}</div>
     </div>
     <div class="section-box">
         <div class="item-row-head"><span>کالا</span><span>تعداد</span><span>قیمت خرید</span><span>جمع</span></div>
@@ -3012,7 +3017,7 @@ window.dpRecalc = dpRecalc;
 function dpOnPaymentMethodChange() {
     const method = document.getElementById('pf_paymethod').value;
     const box = document.getElementById('pf_paymentDetailsBox');
-    if (box) box.innerHTML = paymentDetailsHtml('pf', method, method === draftPurchase.paymentMethod ? draftPurchase.paymentDetails : {});
+    if (box) box.innerHTML = paymentDetailsHtml('pf', method, method === draftPurchase.paymentMethod ? draftPurchase.paymentDetails : {}, true, 'out');
     dpRecalc();
     dpApplyAutoPaid();
 }
@@ -3460,7 +3465,7 @@ function renderPayroll() {
     ${employees.length ? employees.map(e => `
         <div class="list-item">
             <div class="list-item-row">
-                <div><div class="list-item-title">${esc(e.name)}</div><div class="list-item-sub">${esc(e.role || '-')}${e.baseSalary ? ' · حقوق پایه: ' + moneyPlain(e.baseSalary) : ''}</div></div>
+                <div><div class="list-item-title">${esc(e.name)}</div><div class="list-item-sub">${esc(e.role || '-')}${e.baseSalary ? ' · حقوق پایه: ' + moneyPlain(e.baseSalary) : ''}${e.hireDate ? ' · تاریخ ورود: ' + fmtDate(e.hireDate) : ''}</div></div>
                 <div style="text-align:left;"><div class="list-item-title">${moneyPlain(employeePaidTotal(e.id))}</div><div class="txt-caption">جمع پرداختی</div></div>
             </div>
             <div class="action-grid" style="margin-top:8px;">
@@ -3491,6 +3496,7 @@ function openEmployeeEditor(id) {
             <div class="input-group"><label>شماره تماس</label><input type="text" id="emp_phone" value="${esc(e ? e.phone || '' : '')}"></div>
         </div>
         <div class="input-group"><label>حقوق پایه ماهانه</label><input type="text" inputmode="numeric" id="emp_salary" value="${e ? num(e.baseSalary) : ''}" placeholder="0"></div>
+        ${jalaliDateField('emp_hireDate', e ? e.hireDate : todayISO(), 'تاریخ ورود به مجموعه (استخدام)')}
         <div class="input-group"><label>یادداشت</label><textarea id="emp_note">${esc(e ? e.note || '' : '')}</textarea></div>
         <button class="calc-btn" onclick="saveEmployee('${id || ''}')">${e ? 'ذخیره تغییرات' : 'ثبت پرسنل'}</button>
         ${e ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deleteEmployee('${id}')">حذف پرسنل</button>` : ''}
@@ -3504,7 +3510,7 @@ function saveEmployee(id) {
     const list = dbRead(K.employees);
     const data = {
         name, role: document.getElementById('emp_role').value.trim(), phone: document.getElementById('emp_phone').value.trim(),
-        baseSalary: num(document.getElementById('emp_salary').value), note: document.getElementById('emp_note').value.trim()
+        baseSalary: num(document.getElementById('emp_salary').value), hireDate: getJalaliInputISO('emp_hireDate') || todayISO(), note: document.getElementById('emp_note').value.trim()
     };
     if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
     else list.push(Object.assign({ id: uid('emp') }, data));
@@ -3596,7 +3602,7 @@ window.printPayrollList = printPayrollList;
 function openExpenseEditor(id) {
     const e = id ? dbRead(K.expenses).find(x => x.id === id) : null;
     const employees = dbRead(K.employees);
-    const showEmp = e ? e.category === 'حقوق پرسنل' : false;
+    const showEmp = e ? (e.category === 'حقوق پرسنل' || e.category === 'بیمه پرسنل') : false;
     const html = `
         <div class="input-group"><label>عنوان هزینه *</label><input type="text" id="ef_title" value="${esc(e ? e.title : '')}" placeholder="مثلاً: قبض برق مغازه"></div>
         <div class="input-group"><label>دسته‌بندی / موضوع</label>
@@ -3614,6 +3620,15 @@ function openExpenseEditor(id) {
             </select>
             ${!employees.length ? `<p class="txt-caption">هنوز پرسنلی ثبت نشده؛ از منوی «حقوق پرسنل» اضافه کنید.</p>` : ''}
         </div>
+        <div class="input-group" id="ef_insTypeWrap" style="display:${(e && e.category === 'بیمه پرسنل') ? 'block' : 'none'};">
+            <label>نوع بیمه</label>
+            <select id="ef_insType">
+                <option value="تأمین اجتماعی" ${e && e.insuranceType === 'تأمین اجتماعی' ? 'selected' : ''}>تأمین اجتماعی</option>
+                <option value="بیمه تکمیلی" ${e && e.insuranceType === 'بیمه تکمیلی' ? 'selected' : ''}>بیمه تکمیلی</option>
+                <option value="بیمه عمر" ${e && e.insuranceType === 'بیمه عمر' ? 'selected' : ''}>بیمه عمر</option>
+                <option value="سایر" ${e && e.insuranceType === 'سایر' ? 'selected' : ''}>سایر</option>
+            </select>
+        </div>
         ${jalaliDateField('ef_date', e ? e.date : todayISO(), 'تاریخ')}
         <div class="input-group"><label>مبلغ *</label><input type="text" inputmode="numeric" id="ef_amount" value="${e ? num(e.amount) : ''}" placeholder="0"></div>
         <div class="input-group"><label>یادداشت</label><textarea id="ef_note">${esc(e ? e.note : '')}</textarea></div>
@@ -3626,7 +3641,8 @@ window.openExpenseEditor = openExpenseEditor;
 function efOnCategoryChange() {
     const val = document.getElementById('ef_category').value;
     document.getElementById('ef_newCatWrap').style.display = (val === '__new__') ? 'block' : 'none';
-    document.getElementById('ef_empWrap').style.display = (val === 'حقوق پرسنل') ? 'block' : 'none';
+    document.getElementById('ef_empWrap').style.display = (val === 'حقوق پرسنل' || val === 'بیمه پرسنل') ? 'block' : 'none';
+    document.getElementById('ef_insTypeWrap').style.display = (val === 'بیمه پرسنل') ? 'block' : 'none';
 }
 window.efOnCategoryChange = efOnCategoryChange;
 
@@ -3640,10 +3656,11 @@ function saveExpense(id) {
         if (!category) { showToast('عنوان موضوع جدید را وارد کنید', 'error'); return; }
         addExpenseCategory(category);
     }
-    const employeeId = (category === 'حقوق پرسنل') ? (document.getElementById('ef_employee').value || null) : null;
+    const employeeId = (category === 'حقوق پرسنل' || category === 'بیمه پرسنل') ? (document.getElementById('ef_employee').value || null) : null;
+    const insuranceType = (category === 'بیمه پرسنل') ? document.getElementById('ef_insType').value : null;
     const list = dbRead(K.expenses);
     const date = getJalaliInputISO('ef_date') || todayISO();
-    const data = { title, category, amount, date, employeeId, note: document.getElementById('ef_note').value.trim() };
+    const data = { title, category, amount, date, employeeId, insuranceType, note: document.getElementById('ef_note').value.trim() };
     if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
     else list.push(Object.assign({ id: uid('exp'), date: todayISO() }, data));
     dbWrite(K.expenses, list);
@@ -3688,6 +3705,7 @@ const firebaseConfig = {
     measurementId: "G-8SX1KVXR5R"
 };
 let fbAuth = null, fbDb = null, fbUser = null, _cloudSyncTimer = null;
+let _stlDirection = 'in';
 function initFirebase() {
     try {
         if (typeof firebase === 'undefined') { setCloudStatus('signedout'); return; } // CDN blocked/offline — app still fully works locally
@@ -3743,6 +3761,12 @@ function pushToCloud() {
    device (no local data yet) will always have an older/blank local timestamp, so it correctly
    pulls the cloud copy right away with zero clicks. */
 function autoReconcileCloud() {
+    // Defense-in-depth against any reconciliation loop: only auto-reconcile once per browser
+    // tab session. sessionStorage survives a location.reload() (only cleared when the tab/window
+    // actually closes), so even if something else goes wrong this guarantees we never get stuck
+    // repeatedly pulling + reloading.
+    if (sessionStorage.getItem('ap_reconciled_this_session')) { setCloudStatus('synced'); return; }
+    sessionStorage.setItem('ap_reconciled_this_session', '1');
     setCloudStatus('syncing');
     cloudDocRef().get().then((snap) => {
         if (!snap.exists) { pushToCloud(); return; }
@@ -3752,8 +3776,15 @@ function autoReconcileCloud() {
             try {
                 const data = JSON.parse((snap.data() || {}).data || '{}');
                 applyImportedData(data);
+                // Root-cause fix: this write must also bump ap_local_last_modified, otherwise it
+                // stays at its old (stale) value and every reload after this would see the cloud
+                // copy as "still newer" and pull-and-reload again — an infinite loop (this was the
+                // exact freeze/hang seen in the bug report).
+                const stamp = (cloudUpdated && new Date(cloudUpdated) > new Date()) ? cloudUpdated : todayISO();
+                localStorage.setItem('ap_local_last_modified', stamp);
                 localStorage.setItem('ap_last_cloud_sync', todayISO());
                 showToast('اطلاعات از حساب گوگل شما دریافت شد', 'success');
+                setCloudStatus('synced');
                 setTimeout(() => location.reload(), 700);
             } catch (e) { setCloudStatus('error'); }
         } else {
@@ -4888,6 +4919,7 @@ function saveNewPartnerFromWizard() {
 window.saveNewPartnerFromWizard = saveNewPartnerFromWizard;
 
 function openSettleCustomer(customerId) {
+    _stlDirection = 'in';
     const c = dbRead(K.customers).find(x => x.id === customerId);
     if (!c) return;
     const bal = customerBalance(customerId);
@@ -4913,7 +4945,7 @@ window.openSettleCustomer = openSettleCustomer;
 function stlOnMethodChange() {
     const method = document.getElementById('stl_method').value;
     const box = document.getElementById('stl_detailBox');
-    box.innerHTML = (method === 'cash') ? '' : paymentDetailsHtml('stl', method, {}, false);
+    box.innerHTML = (method === 'cash') ? '' : paymentDetailsHtml('stl', method, {}, false, _stlDirection);
 }
 window.stlOnMethodChange = stlOnMethodChange;
 function settleCustomer(customerId) {
@@ -4959,6 +4991,7 @@ function settleCustomer(customerId) {
 window.settleCustomer = settleCustomer;
 
 function openSettleSupplier(name) {
+    _stlDirection = 'out';
     const suppliers = {};
     dbRead(K.purchases).forEach(p => { const r = Math.max(0, num(p.total) - num(p.paidAmount)); if (p.supplier === name && r > 0) suppliers[name] = (suppliers[name] || 0) + r; });
     const bal = suppliers[name] || 0;
@@ -5558,7 +5591,7 @@ const HELP_SECTIONS = [
     ['نکته مهم درباره ذخیره‌سازی', `این نرم‌افزار کاملاً محلی (client-side) است و اطلاعات فقط در همان مرورگر/دستگاه شما ذخیره می‌شود؛ هیچ سروری اطلاعات شما را دریافت نمی‌کند. برای همگام‌سازی بین چند دستگاه یا دسترسی چندکاربره آنلاین، نیاز به افزودن یک سرویس بک‌اند (مانند Firebase) دارد که در نسخه فعلی پیاده‌سازی نشده است.`]
 ];
 
-const APP_BUILD_LABEL = 'نسخه ۷ — بروزرسانی ۱۱ شهریور ۱۴۰۵';
+const APP_BUILD_LABEL = 'نسخه ۸ — بروزرسانی ۱۳ شهریور ۱۴۰۵ (رفع هنگ ورود گوگل + کش‌بریکینگ)';
 function renderHelp() {
     return `
     ${viewHeader('سیستم', 'راهنمای کامل برنامه', 'آموزش گام‌به‌گام استفاده از حسابداری پلاس برای کاربران تازه‌کار')}

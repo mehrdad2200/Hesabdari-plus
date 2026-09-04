@@ -1,9 +1,9 @@
-const CACHE_NAME = "hesabdari-plus-v7";
+const CACHE_NAME = "hesabdari-plus-v8";
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css',
-  './app.js',
+  './styles.css?v=8',
+  './app.js?v=8',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -36,7 +36,7 @@ self.addEventListener('fetch', (event) => {
 
   if (isSameOrigin) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-store' })
         .then((response) => {
           if (response && response.status === 200) {
             const clone = response.clone();
