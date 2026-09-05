@@ -28,7 +28,16 @@ const K = {
     customerPayments: 'ap_customerpayments',
     supplierPayments: 'ap_supplierpayments',
     otherAssets: 'ap_otherassets',
-    partners: 'ap_partners'
+    partners: 'ap_partners',
+    suppliers: 'ap_suppliers',
+    purchaseOrders: 'ap_purchase_orders',
+    rfqs: 'ap_rfqs',
+    blanketOrders: 'ap_blanket_orders',
+    supplierReturns: 'ap_supplier_returns',
+    supplierPrepayments: 'ap_supplier_prepayments',
+    supplierPrices: 'ap_supplier_prices',
+    consignmentStock: 'ap_consignment_stock',
+    shipments: 'ap_shipments'
 };
 
 /* Wrap the browser confirm() so the "confirm before destructive action" setting can be honored. */
@@ -449,6 +458,7 @@ window.addEventListener('popstate', () => {
 });
 
 const NAV_ICONS = {
+    supplyChainHub: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>`,
     home: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
     dashboard: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>`,
     invoices: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/></svg>`,
@@ -469,13 +479,14 @@ const NAV_ICONS = {
     settings: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
 };
 function openMoreMenu() {
+    const pro = isProMode();
     const items = [
         ['home', 'خانه'], ['dashboard', 'داشبورد'], ['invoices', 'فاکتور فروش'], ['products', 'کالا و انبار'],
         ['customers', 'مشتریان'], ['purchases', 'خرید از تأمین‌کننده'], ['treasury', 'صندوق و بانک'],
-        ['checks', 'چک‌ها'], ['expenses', 'هزینه‌ها'], ['payroll', 'حقوق پرسنل'], ['settlements', 'بدهکاران و طلبکاران'], ['partners', 'شرکا و سهم سود'],
+        ['checks', 'چک‌ها'], ['expenses', 'هزینه‌ها'], ['payroll', 'حقوق پرسنل'], ['settlements', 'بدهکاران و طلبکاران'], ['partners', 'شرکا و سهم سود'], ['supplyChainHub', 'زنجیره تأمین'],
         ['stocktake', 'انبارگردانی'], ['reports', 'گزارش‌ها'], ['backup', 'پشتیبان‌گیری'],
         ['help', 'راهنما'], ['about', 'درباره برنامه'], ['settings', 'تنظیمات']
-    ];
+    ].filter(([v]) => pro || !PRO_ONLY_VIEWS.includes(v));
     const html = items.map(([v, l]) => `
         <button class="btn-action more-menu-item" style="width:100%; justify-content:flex-start; gap:10px; margin-bottom:8px;" onclick="closeMoreMenu(); switchView('${v}')">
             <span class="more-menu-icon">${NAV_ICONS[v] || ''}</span>
@@ -3157,11 +3168,23 @@ function adjustStockByName(items, sign) {
 function savePurchase() {
     const supplier = document.getElementById('pf_supplier').value.trim();
     if (!supplier) { showToast('نام تأمین‌کننده را وارد کنید', 'error'); return; }
+    // resolve/auto-create the matching supplier entity so the supply-chain module (balance,
+    // history, rating, MOQ) stays populated even though this field is still a simple text input
+    const suppliersList = dbRead(K.suppliers);
+    let supplierEntity = suppliersList.find(s => s.name === supplier);
+    if (!supplierEntity) {
+        supplierEntity = { id: uid('sup'), name: supplier, phone: '', address: '', contactPerson: '', paymentTerms: 'cash', category: 'عمده‌فروش', qualityRating: 0, speedRating: 0, priceRating: 0, blacklisted: false, moq: 0, createdAt: todayISO(), notes: '' };
+        suppliersList.push(supplierEntity);
+        dbWrite(K.suppliers, suppliersList);
+    }
     const paymentMethod = document.getElementById('pf_paymethod').value;
     const paymentDetails = paymentDetailsCollect('pf', paymentMethod);
     const items = draftPurchase.items.filter(it => (it.name || it.productId) && num(it.qty) > 0);
     if (!items.length) { showToast('حداقل یک ردیف کالا وارد کنید', 'error'); return; }
     const rawTotal = items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
+    if (num(supplierEntity.moq) && items.reduce((s, it) => s + num(it.qty), 0) < num(supplierEntity.moq)) {
+        showToast(`⚠️ توجه: حداقل مقدار سفارش این تأمین‌کننده ${num(supplierEntity.moq).toLocaleString(localeForDigits())} است؛ این خرید کمتر از آن ثبت می‌شود`, 'error');
+    }
     const interestAmount = paymentMethod === 'credit' || paymentMethod === 'check' ? creditInterestAmount(rawTotal, paymentDetails) : 0;
     const total = rawTotal + interestAmount;
     const paidAmount = Math.min(total, num(document.getElementById('pf_paid').value));
@@ -3180,11 +3203,11 @@ function savePurchase() {
         const old = list.find(p => p.id === draftPurchase.id);
         if (old) adjustStockByName(old.items, -1);
         const idx = list.findIndex(p => p.id === draftPurchase.id);
-        list[idx] = Object.assign(list[idx], { supplier, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, checkDeduction, excludeFromPartnership, date });
+        list[idx] = Object.assign(list[idx], { supplier, supplierId: supplierEntity.id, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, checkDeduction, excludeFromPartnership, date });
         adjustStockByName(items, +1);
     } else {
         savedId = uid('pur');
-        list.push({ id: savedId, number: draftPurchase.number, date, supplier, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, checkDeduction, excludeFromPartnership });
+        list.push({ id: savedId, number: draftPurchase.number, date, supplier, supplierId: supplierEntity.id, items, interestAmount, total, paidAmount, status, paymentMethod, paymentDetails, checkDeduction, excludeFromPartnership });
         adjustStockByName(items, +1);
     }
     dbWrite(K.purchases, list);
@@ -4068,7 +4091,7 @@ window.manualCloudSync = manualCloudSync;
    menu doesn't feel overwhelming. Switching modes only changes what's shown;
    no data is ever deleted.
    ------------------------------------------------------------------------- */
-const PRO_ONLY_VIEWS = ['partners'];
+const PRO_ONLY_VIEWS = ['partners', 'supplyChainHub', 'suppliers', 'supplierDetail', 'purchaseOrders', 'poDetail', 'rfqs', 'blanketOrders'];
 function isProMode() { return (getSettings().appMode || 'pro') !== 'simple'; }
 function applyAppModeVisibility() {
     const pro = isProMode();
@@ -5105,6 +5128,659 @@ function printPartnersList() {
 }
 window.printPartnersList = printPartnersList;
 
+/* =============================================================================
+   SUPPLY CHAIN MODULE (Pro mode only)
+   Group A — Suppliers & Purchasing
+   =============================================================================
+   Suppliers move from a free-text string on each purchase to a first-class
+   entity with history, balance, rating, and payment terms. A one-time,
+   non-destructive migration (see migrateSuppliersToEntities) creates a
+   supplier record for every distinct name already used in purchases and
+   links each purchase to it via supplierId, while keeping the original
+   `.supplier` string field untouched so all existing code that reads it
+   (grouping, printing, settlements) keeps working exactly as before.
+   ============================================================================= */
+const SUPPLIER_CATEGORIES = ['عمده‌فروش', 'تولیدکننده', 'واسطه'];
+const PAYMENT_TERMS_LABELS = { cash: 'نقدی', check: 'چکی', credit: 'اعتباری (نسیه)' };
+
+function migrateSuppliersToEntities() {
+    const purchases = dbRead(K.purchases);
+    const suppliers = dbRead(K.suppliers);
+    let changed = false;
+    purchases.forEach(p => {
+        if (p.supplierId) return; // already migrated
+        if (!p.supplier) return;
+        let entity = suppliers.find(s => s.name === p.supplier);
+        if (!entity) {
+            entity = { id: uid('sup'), name: p.supplier, phone: '', address: '', contactPerson: '', paymentTerms: 'cash', category: 'عمده‌فروش', qualityRating: 0, speedRating: 0, priceRating: 0, blacklisted: false, moq: 0, createdAt: p.date || todayISO(), notes: '' };
+            suppliers.push(entity);
+        }
+        p.supplierId = entity.id;
+        changed = true;
+    });
+    if (changed) { dbWrite(K.suppliers, suppliers); dbWrite(K.purchases, purchases); }
+}
+
+function supplierBalance(supplierId) {
+    const sup = dbRead(K.suppliers).find(s => s.id === supplierId);
+    if (!sup) return 0;
+    const purchaseDebt = dbRead(K.purchases).filter(p => p.supplierId === supplierId || p.supplier === sup.name)
+        .reduce((s, p) => s + Math.max(0, num(p.total) - num(p.paidAmount)), 0);
+    const prepaid = dbRead(K.supplierPrepayments).filter(pp => pp.supplierId === supplierId && !pp.settled).reduce((s, pp) => s + num(pp.amount), 0);
+    const returnsCredit = dbRead(K.supplierReturns).filter(r => r.supplierId === supplierId).reduce((s, r) => s + num(r.amount), 0);
+    return Math.max(0, purchaseDebt - prepaid - returnsCredit);
+}
+function supplierPurchaseHistory(supplierId) {
+    const sup = dbRead(K.suppliers).find(s => s.id === supplierId);
+    if (!sup) return [];
+    return dbRead(K.purchases).filter(p => p.supplierId === supplierId || p.supplier === sup.name).sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+function supplierAvgRating(sup) {
+    const vals = [num(sup.qualityRating), num(sup.speedRating), num(sup.priceRating)].filter(v => v > 0);
+    return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+}
+function ratingStars(n) {
+    const rounded = Math.round(n);
+    return '★'.repeat(rounded) + '☆'.repeat(5 - rounded);
+}
+
+function renderSuppliers() {
+    migrateSuppliersToEntities();
+    const term = (supplierSearchTerm || '').trim();
+    let list = dbRead(K.suppliers);
+    if (term) list = list.filter(s => (s.name + (s.phone || '')).includes(term));
+    list.sort((a, b) => a.name.localeCompare(b.name, 'fa'));
+    const totalOwed = dbRead(K.suppliers).reduce((s, sup) => s + supplierBalance(sup.id), 0);
+    return `
+    ${viewHeader('زنجیره تأمین', 'تأمین‌کنندگان', `${list.length.toLocaleString(localeForDigits())} تأمین‌کننده · جمع بدهی: ${money(totalOwed)}`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت به داشبورد زنجیره تأمین"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></button>`)}
+    <div class="search-bar">
+        <input type="text" placeholder="جستجوی نام یا تلفن..." value="${esc(supplierSearchTerm || '')}" oninput="supplierSearchTerm=this.value; rerenderIfActive('suppliers')">
+        <button class="fab-add" onclick="openSupplierEditor()" title="تأمین‌کننده جدید">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+    </div>
+    ${list.length ? list.map(s => {
+        const bal = supplierBalance(s.id);
+        return `
+        <div class="list-item" style="cursor:pointer; ${s.blacklisted ? 'opacity:.55;' : ''}" onclick="openSupplierDetail('${s.id}')">
+            <div class="list-item-row">
+                <div><div class="list-item-title">${s.blacklisted ? '🚫 ' : ''}${esc(s.name)}</div><div class="list-item-sub">${esc(s.category || '-')} · ${esc(PAYMENT_TERMS_LABELS[s.paymentTerms] || '-')}${s.phone ? ' · ' + esc(s.phone) : ''}</div></div>
+                <div style="text-align:left;">
+                    <div class="list-item-title" style="color:${bal > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)'}">${bal > 0 ? moneyPlain(bal) : 'تسویه'}</div>
+                    ${supplierAvgRating(s) ? `<div class="txt-caption" style="color:#f5a524;">${ratingStars(supplierAvgRating(s))}</div>` : ''}
+                </div>
+            </div>
+        </div>`;
+    }).join('') : `<div class="empty-state">هنوز تأمین‌کننده‌ای ثبت نشده است. با ثبت اولین خرید یا از دکمه + اضافه کنید.</div>`}
+    `;
+}
+VIEW_RENDERERS.suppliers = renderSuppliers;
+window.supplierSearchTerm = '';
+
+function openSupplierEditor(id) {
+    const s = id ? dbRead(K.suppliers).find(x => x.id === id) : null;
+    const html = `
+        <div class="input-group"><label>نام تأمین‌کننده *</label><input type="text" id="sp_name" value="${esc(s ? s.name : '')}"></div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>تلفن</label><input type="text" id="sp_phone" value="${esc(s ? s.phone || '' : '')}"></div>
+            <div class="input-group"><label>فرد رابط</label><input type="text" id="sp_contact" value="${esc(s ? s.contactPerson || '' : '')}"></div>
+        </div>
+        <div class="input-group"><label>آدرس</label><textarea id="sp_address">${esc(s ? s.address || '' : '')}</textarea></div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>دسته‌بندی</label>
+                <select id="sp_category">${SUPPLIER_CATEGORIES.map(c => `<option value="${c}" ${s && s.category === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
+            </div>
+            <div class="input-group"><label>شرایط پرداخت</label>
+                <select id="sp_terms">${Object.entries(PAYMENT_TERMS_LABELS).map(([v, l]) => `<option value="${v}" ${s && s.paymentTerms === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            </div>
+        </div>
+        <div class="input-group"><label>حداقل مقدار سفارش (MOQ) — اختیاری</label><input type="text" inputmode="numeric" id="sp_moq" value="${s ? num(s.moq) || '' : ''}" placeholder="مثلاً 50"></div>
+        <div class="section-title" style="margin-top:4px;">امتیاز تأمین‌کننده (۱ تا ۵)</div>
+        <div class="mini-form-grid" style="grid-template-columns:repeat(3,1fr);">
+            <div class="input-group"><label>کیفیت</label><input type="text" inputmode="numeric" id="sp_qrate" value="${s ? num(s.qualityRating) || '' : ''}"></div>
+            <div class="input-group"><label>سرعت</label><input type="text" inputmode="numeric" id="sp_srate" value="${s ? num(s.speedRating) || '' : ''}"></div>
+            <div class="input-group"><label>قیمت</label><input type="text" inputmode="numeric" id="sp_prate" value="${s ? num(s.priceRating) || '' : ''}"></div>
+        </div>
+        <div class="input-group"><label>یادداشت</label><textarea id="sp_notes">${esc(s ? s.notes || '' : '')}</textarea></div>
+        <button class="calc-btn" onclick="saveSupplier('${id || ''}')">${s ? 'ذخیره تغییرات' : 'ثبت تأمین‌کننده'}</button>
+        ${s ? `<button class="btn-action" style="width:100%; margin-top:8px;" onclick="toggleSupplierBlacklist('${id}')">${s.blacklisted ? '✓ خارج کردن از لیست سیاه' : '🚫 قرار دادن در لیست سیاه (غیرفعال کردن)'}</button>` : ''}
+    `;
+    openModal(s ? 'ویرایش تأمین‌کننده' : 'تأمین‌کننده جدید', html);
+}
+window.openSupplierEditor = openSupplierEditor;
+function saveSupplier(id) {
+    const name = document.getElementById('sp_name').value.trim();
+    if (!name) { showToast('نام تأمین‌کننده الزامی است', 'error'); return; }
+    const list = dbRead(K.suppliers);
+    const data = {
+        name, phone: document.getElementById('sp_phone').value.trim(), contactPerson: document.getElementById('sp_contact').value.trim(),
+        address: document.getElementById('sp_address').value.trim(), category: document.getElementById('sp_category').value,
+        paymentTerms: document.getElementById('sp_terms').value, moq: num(document.getElementById('sp_moq').value),
+        qualityRating: num(document.getElementById('sp_qrate').value), speedRating: num(document.getElementById('sp_srate').value), priceRating: num(document.getElementById('sp_prate').value),
+        notes: document.getElementById('sp_notes').value.trim()
+    };
+    if (id) {
+        const idx = list.findIndex(s => s.id === id);
+        const oldName = list[idx].name;
+        list[idx] = Object.assign(list[idx], data);
+        if (oldName !== name) {
+            // keep the legacy string field on past purchases in sync so grouping/printing still matches
+            const purchases = dbRead(K.purchases);
+            purchases.forEach(p => { if (p.supplierId === id) p.supplier = name; });
+            dbWrite(K.purchases, purchases);
+        }
+        dbWrite(K.suppliers, list);
+        closeModal(); showToast('اطلاعات تأمین‌کننده ذخیره شد', 'success'); openSupplierDetail(id);
+    } else {
+        const entity = Object.assign({ id: uid('sup'), blacklisted: false, createdAt: todayISO() }, data);
+        list.push(entity);
+        dbWrite(K.suppliers, list);
+        closeModal(); showToast('تأمین‌کننده ثبت شد', 'success'); switchView('suppliers');
+    }
+    autoBackupTick();
+}
+window.saveSupplier = saveSupplier;
+function toggleSupplierBlacklist(id) {
+    const list = dbRead(K.suppliers);
+    const s = list.find(x => x.id === id);
+    if (!s) return;
+    s.blacklisted = !s.blacklisted;
+    dbWrite(K.suppliers, list);
+    autoBackupTick();
+    closeModal();
+    showToast(s.blacklisted ? 'تأمین‌کننده در لیست سیاه قرار گرفت' : 'تأمین‌کننده از لیست سیاه خارج شد', 'success');
+    switchView('suppliers');
+}
+window.toggleSupplierBlacklist = toggleSupplierBlacklist;
+function deleteSupplierEntity(id) {
+    if (supplierPurchaseHistory(id).length) { showToast('این تأمین‌کننده سابقه خرید دارد؛ به‌جای حذف، آن را در لیست سیاه قرار دهید', 'error'); return; }
+    if (!confirmAction('حذف این تأمین‌کننده؟')) return;
+    dbWrite(K.suppliers, dbRead(K.suppliers).filter(x => x.id !== id));
+    autoBackupTick();
+    closeModal(); showToast('تأمین‌کننده حذف شد', 'success'); switchView('suppliers');
+}
+window.deleteSupplierEntity = deleteSupplierEntity;
+
+function openSupplierDetail(id) {
+    const s = dbRead(K.suppliers).find(x => x.id === id);
+    if (!s) return;
+    const history = supplierPurchaseHistory(id);
+    const bal = supplierBalance(id);
+    const totalPurchased = history.reduce((sum, p) => sum + num(p.total), 0);
+    const returns = dbRead(K.supplierReturns).filter(r => r.supplierId === id);
+    const prepayments = dbRead(K.supplierPrepayments).filter(p => p.supplierId === id);
+    const priceHistory = supplierPriceHistoryForCompare(id);
+
+    const html = `
+    ${viewHeader('زنجیره تأمین', esc(s.name), `${esc(s.category || '-')} · ${esc(PAYMENT_TERMS_LABELS[s.paymentTerms] || '-')}${s.blacklisted ? ' · 🚫 لیست سیاه' : ''}`, `<button class="nav-btn" onclick="switchView('suppliers')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val" style="color:${bal > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)'}">${money(bal)}</div><div class="stat-label">مانده بدهی فعلی</div></div>
+        <div class="stat-card"><div class="stat-val">${money(totalPurchased)}</div><div class="stat-label">جمع کل خرید تاریخی</div></div>
+    </div>
+    ${supplierAvgRating(s) ? `<p class="txt-body" style="color:#f5a524; text-align:center; margin-bottom:10px;">${ratingStars(supplierAvgRating(s))} (کیفیت: ${num(s.qualityRating)}، سرعت: ${num(s.speedRating)}، قیمت: ${num(s.priceRating)})</p>` : ''}
+    <div class="action-grid">
+        <button class="btn-action" onclick="openSupplierEditor('${id}')">✎ ویرایش</button>
+        <button class="btn-action" onclick="openSupplierReturnEditor('${id}')">↩ ثبت مرجوعی</button>
+        <button class="btn-action" onclick="openSupplierPrepaymentEditor('${id}')">💰 پیش‌پرداخت</button>
+        <button class="calc-btn" onclick="openPurchaseEditorForSupplier('${id}')">+ خرید جدید</button>
+    </div>
+    ${s.moq ? `<p class="txt-caption" style="margin-top:8px;">حداقل مقدار سفارش (MOQ): ${num(s.moq).toLocaleString(localeForDigits())}</p>` : ''}
+    ${s.address || s.phone || s.contactPerson ? `<div class="section-box"><div class="section-title">اطلاعات تماس</div>
+        ${s.phone ? `<div class="txt-body">📞 ${esc(s.phone)}</div>` : ''}
+        ${s.contactPerson ? `<div class="txt-body">👤 فرد رابط: ${esc(s.contactPerson)}</div>` : ''}
+        ${s.address ? `<div class="txt-body">📍 ${esc(s.address)}</div>` : ''}
+    </div>` : ''}
+
+    <div class="section-box">
+        <div class="section-title">تاریخچه خرید (${history.length.toLocaleString(localeForDigits())})</div>
+        ${history.length ? history.slice(0, 30).map(purchaseItemHtml).join('') : `<div class="empty-state">هنوز خریدی ثبت نشده.</div>`}
+    </div>
+
+    ${priceHistory.length ? `<div class="section-box">
+        <div class="section-title">مقایسه قیمت این تأمین‌کننده با سایرین</div>
+        <table class="report-table"><thead><tr><th>کالا</th><th>قیمت این تأمین‌کننده</th><th>ارزان‌ترین در بازار</th></tr></thead>
+        <tbody>${priceHistory.map(r => `<tr><td class="text-cell">${esc(r.name)}</td><td>${moneyPlain(r.thisPrice)}</td><td style="color:${r.thisPrice > r.cheapest ? 'var(--accent-rose)' : 'var(--accent-emerald)'}">${moneyPlain(r.cheapest)}${r.cheapestSupplier ? ' (' + esc(r.cheapestSupplier) + ')' : ''}</td></tr>`).join('')}</tbody></table>
+    </div>` : ''}
+
+    ${prepayments.length ? `<div class="section-box">
+        <div class="section-title">پیش‌پرداخت‌ها</div>
+        ${prepayments.map(p => `<div class="list-item"><div class="list-item-row"><div><div class="list-item-title">${fmtDate(p.date)}</div><div class="list-item-sub">${esc(p.note || '')}</div></div><div class="list-item-title" style="color:${p.settled ? 'var(--text-muted)' : 'var(--accent-amber)'}">${moneyPlain(p.amount)}${p.settled ? ' (تسویه‌شده)' : ''}</div></div></div>`).join('')}
+    </div>` : ''}
+
+    ${returns.length ? `<div class="section-box">
+        <div class="section-title">مرجوعی‌ها</div>
+        ${returns.map(r => `<div class="list-item"><div class="list-item-row"><div><div class="list-item-title">${esc(r.itemName)}</div><div class="list-item-sub">${fmtDate(r.date)} · ${esc(r.reason || '-')}</div></div><div class="list-item-title">${moneyPlain(r.amount)}</div></div></div>`).join('')}
+    </div>` : ''}
+
+    <button class="btn-action" style="width:100%; color:var(--accent-rose);" onclick="deleteSupplierEntity('${id}')">حذف تأمین‌کننده (فقط اگر سابقه خرید ندارد)</button>
+    `;
+    document.getElementById('viewRoot').innerHTML = html;
+    currentView = 'supplierDetail';
+}
+window.openSupplierDetail = openSupplierDetail;
+function openPurchaseEditorForSupplier(supplierId) {
+    const s = dbRead(K.suppliers).find(x => x.id === supplierId);
+    openPurchaseEditor();
+    setTimeout(() => {
+        const el = document.getElementById('pf_supplier');
+        if (el && s) { el.value = s.name; draftPurchase.supplier = s.name; draftPurchase.supplierId = supplierId; }
+    }, 30);
+}
+window.openPurchaseEditorForSupplier = openPurchaseEditorForSupplier;
+
+function supplierPriceHistoryForCompare(supplierId) {
+    const sup = dbRead(K.suppliers).find(x => x.id === supplierId);
+    if (!sup) return [];
+    const purchases = dbRead(K.purchases);
+    const byItem = {};
+    purchases.forEach(p => p.items.forEach(it => {
+        const key = it.name;
+        if (!byItem[key]) byItem[key] = [];
+        byItem[key].push({ supplier: p.supplier, price: num(it.price) });
+    }));
+    const thisItems = {};
+    purchases.filter(p => p.supplierId === supplierId || p.supplier === sup.name).forEach(p => p.items.forEach(it => { thisItems[it.name] = num(it.price); }));
+    return Object.entries(thisItems).map(([name, thisPrice]) => {
+        const all = byItem[name] || [];
+        const cheapestEntry = all.slice().sort((a, b) => a.price - b.price)[0];
+        return { name, thisPrice, cheapest: cheapestEntry ? cheapestEntry.price : thisPrice, cheapestSupplier: cheapestEntry ? cheapestEntry.supplier : '' };
+    }).filter(r => r.cheapest < r.thisPrice || Object.values(byItem[r.name] || []).length > 1);
+}
+
+/* Supplier returns (مرجوعی) — reduces what we owe that supplier */
+function openSupplierReturnEditor(supplierId) {
+    const s = dbRead(K.suppliers).find(x => x.id === supplierId);
+    if (!s) return;
+    const html = `
+        <p class="txt-caption" style="margin-bottom:10px;">مرجوعی به: <strong>${esc(s.name)}</strong></p>
+        <div class="input-group"><label>نام کالا *</label><input type="text" id="sr_item"></div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>تعداد</label><input type="text" inputmode="numeric" id="sr_qty" value="1"></div>
+            <div class="input-group"><label>مبلغ کل مرجوعی *</label><input type="text" inputmode="numeric" id="sr_amount" placeholder="0"></div>
+        </div>
+        ${jalaliDateField('sr_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>دلیل مرجوعی</label><input type="text" id="sr_reason" placeholder="مثلاً: کالای معیوب"></div>
+        <button class="calc-btn" onclick="saveSupplierReturn('${supplierId}')">ثبت مرجوعی</button>
+    `;
+    openModal('ثبت مرجوعی به تأمین‌کننده', html);
+}
+window.openSupplierReturnEditor = openSupplierReturnEditor;
+function saveSupplierReturn(supplierId) {
+    const itemName = document.getElementById('sr_item').value.trim();
+    const amount = num(document.getElementById('sr_amount').value);
+    if (!itemName || !amount) { showToast('نام کالا و مبلغ را وارد کنید', 'error'); return; }
+    const list = dbRead(K.supplierReturns);
+    list.push({ id: uid('sret'), supplierId, itemName, qty: num(document.getElementById('sr_qty').value) || 1, amount, date: getJalaliInputISO('sr_date') || todayISO(), reason: document.getElementById('sr_reason').value.trim() });
+    dbWrite(K.supplierReturns, list);
+    autoBackupTick();
+    closeModal(); showToast('مرجوعی ثبت شد و از بدهی کسر گردید', 'success'); openSupplierDetail(supplierId);
+}
+window.saveSupplierReturn = saveSupplierReturn;
+
+/* Supplier prepayments (پیش‌پرداخت / بیعانه) — reduces future purchase debt automatically via supplierBalance() */
+function openSupplierPrepaymentEditor(supplierId) {
+    const s = dbRead(K.suppliers).find(x => x.id === supplierId);
+    if (!s) return;
+    const html = `
+        <p class="txt-caption" style="margin-bottom:10px;">پیش‌پرداخت به: <strong>${esc(s.name)}</strong></p>
+        <div class="input-group"><label>مبلغ *</label><input type="text" inputmode="numeric" id="spp_amount" placeholder="0"></div>
+        ${jalaliDateField('spp_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>یادداشت</label><input type="text" id="spp_note" placeholder="مثلاً: بیعانه سفارش پارچه"></div>
+        <button class="calc-btn" onclick="saveSupplierPrepayment('${supplierId}')">ثبت پیش‌پرداخت</button>
+    `;
+    openModal('پیش‌پرداخت به تأمین‌کننده', html);
+}
+window.openSupplierPrepaymentEditor = openSupplierPrepaymentEditor;
+function saveSupplierPrepayment(supplierId) {
+    const amount = num(document.getElementById('spp_amount').value);
+    if (!amount) { showToast('مبلغ را وارد کنید', 'error'); return; }
+    const date = getJalaliInputISO('spp_date') || todayISO();
+    const note = document.getElementById('spp_note').value.trim();
+    const list = dbRead(K.supplierPrepayments);
+    list.push({ id: uid('spre'), supplierId, amount, date, note, settled: false });
+    dbWrite(K.supplierPrepayments, list);
+    const tx = dbRead(K.cashtx);
+    tx.push({ id: uid('tx'), date, type: 'out', amount, desc: `پیش‌پرداخت به تأمین‌کننده: ${dbRead(K.suppliers).find(x => x.id === supplierId)?.name || ''}${note ? ' — ' + note : ''}` });
+    dbWrite(K.cashtx, tx);
+    autoBackupTick();
+    closeModal(); showToast('پیش‌پرداخت ثبت شد', 'success'); openSupplierDetail(supplierId);
+}
+window.saveSupplierPrepayment = saveSupplierPrepayment;
+
+/* ---------------------------------------------------------------------------
+   Purchase Orders (سفارش خرید) — sits BEFORE a purchase invoice: draft → sent
+   → confirmed → shipping → received (partial/full) → closed. Receiving (in
+   full or in part) auto-creates/updates the corresponding purchase record and
+   adjusts stock, so the money/inventory side of things stays a single source
+   of truth in K.purchases exactly as before.
+   ------------------------------------------------------------------------- */
+const PO_STATUSES = [['draft', 'پیش‌نویس'], ['sent', 'ارسال‌شده'], ['confirmed', 'تأییدشده'], ['shipping', 'در حال ارسال'], ['partial', 'دریافت جزئی'], ['received', 'دریافت‌شده کامل'], ['closed', 'بسته‌شده']];
+function poStatusLabel(s) { return (PO_STATUSES.find(x => x[0] === s) || [, s])[1]; }
+function poStatusBadgeClass(s) { return { draft: 'badge-cyan', sent: 'badge-amber', confirmed: 'badge-amber', shipping: 'badge-amber', partial: 'badge-amber', received: 'badge-emerald', closed: 'badge-emerald' }[s] || 'badge-cyan'; }
+
+function renderPurchaseOrders() {
+    const list = dbRead(K.purchaseOrders).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    return `
+    ${viewHeader('زنجیره تأمین', 'سفارش‌های خرید', `${list.length.toLocaleString(localeForDigits())} سفارش`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar">
+        <div></div>
+        <button class="fab-add" onclick="openPOEditor()" title="سفارش خرید جدید">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+    </div>
+    ${list.length ? list.map(po => {
+        const supplier = dbRead(K.suppliers).find(s => s.id === po.supplierId);
+        const totalOrdered = po.items.reduce((s, it) => s + num(it.qty), 0);
+        const totalReceived = po.items.reduce((s, it) => s + num(it.receivedQty), 0);
+        return `<div class="list-item" style="cursor:pointer;" onclick="openPODetail('${po.id}')">
+            <div class="list-item-row">
+                <div><div class="list-item-title">${esc(supplier ? supplier.name : 'نامشخص')} <span class="txt-caption">#${po.number}</span></div><div class="list-item-sub">${fmtDate(po.date)} · دریافت ${totalReceived.toLocaleString(localeForDigits())} از ${totalOrdered.toLocaleString(localeForDigits())}</div></div>
+                <span class="badge ${poStatusBadgeClass(po.status)}">${poStatusLabel(po.status)}</span>
+            </div>
+        </div>`;
+    }).join('') : `<div class="empty-state">هنوز سفارش خریدی ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.purchaseOrders = renderPurchaseOrders;
+
+let draftPO = null;
+function nextPONumber() { const all = dbRead(K.purchaseOrders); return (all.reduce((m, p) => Math.max(m, num(p.number)), 3000)) + 1; }
+function openPOEditor(id) {
+    const existing = id ? dbRead(K.purchaseOrders).find(p => p.id === id) : null;
+    draftPO = existing ? JSON.parse(JSON.stringify(existing)) : { id: null, number: nextPONumber(), date: todayISO(), supplierId: '', status: 'draft', items: [{ name: '', qty: 1, price: 0, receivedQty: 0 }], note: '' };
+    renderPOEditorModal();
+}
+window.openPOEditor = openPOEditor;
+function renderPOEditorModal() {
+    const suppliers = dbRead(K.suppliers);
+    const d = draftPO;
+    const html = `
+        <div class="input-group"><label>تأمین‌کننده *</label>
+            <select id="po_supplier">
+                <option value="">— انتخاب کنید —</option>
+                ${suppliers.map(s => `<option value="${s.id}" ${d.supplierId === s.id ? 'selected' : ''}>${esc(s.name)}${s.blacklisted ? ' (لیست سیاه)' : ''}</option>`).join('')}
+            </select>
+        </div>
+        ${jalaliDateField('po_date', d.date, 'تاریخ سفارش')}
+        <div class="input-group"><label>وضعیت</label>
+            <select id="po_status">${PO_STATUSES.map(([v, l]) => `<option value="${v}" ${d.status === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        </div>
+        <div class="section-title">اقلام سفارش</div>
+        <div id="po_itemsWrap">${d.items.map((it, idx) => poItemRowHtml(it, idx)).join('')}</div>
+        <button class="btn-action" style="width:100%;" type="button" onclick="poAddRow()">+ افزودن ردیف</button>
+        <div class="input-group" style="margin-top:10px;"><label>یادداشت</label><textarea id="po_note">${esc(d.note || '')}</textarea></div>
+        <button class="calc-btn" onclick="savePO()">${d.id ? 'ذخیره تغییرات' : 'ثبت سفارش خرید'}</button>
+        ${d.id ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deletePO('${d.id}')">حذف سفارش</button>` : ''}
+    `;
+    openModal(d.id ? `ویرایش سفارش خرید #${d.number}` : 'سفارش خرید جدید', html);
+}
+function poItemRowHtml(it, idx) {
+    return `<div class="mini-form-grid" style="grid-template-columns:2fr 1fr 1fr 1fr; align-items:end; margin-bottom:6px;">
+        <div class="input-group"><label>کالا</label><input type="text" value="${esc(it.name)}" oninput="poUpdateItem(${idx},'name',this.value)"></div>
+        <div class="input-group"><label>تعداد سفارش</label><input type="text" inputmode="numeric" value="${num(it.qty)}" oninput="poUpdateItem(${idx},'qty',this.value)"></div>
+        <div class="input-group"><label>قیمت واحد</label><input type="text" inputmode="numeric" value="${num(it.price)}" oninput="poUpdateItem(${idx},'price',this.value)"></div>
+        <div class="input-group"><label>دریافت‌شده</label><input type="text" inputmode="numeric" value="${num(it.receivedQty)}" oninput="poUpdateItem(${idx},'receivedQty',this.value)"></div>
+    </div>`;
+}
+function poSyncFromDom() {
+    const supEl = document.getElementById('po_supplier'); if (supEl) draftPO.supplierId = supEl.value;
+    const dateIso = getJalaliInputISO('po_date'); if (dateIso) draftPO.date = dateIso;
+    const statusEl = document.getElementById('po_status'); if (statusEl) draftPO.status = statusEl.value;
+    const noteEl = document.getElementById('po_note'); if (noteEl) draftPO.note = noteEl.value;
+}
+function poUpdateItem(idx, field, value) {
+    poSyncFromDom();
+    draftPO.items[idx][field] = (field === 'name') ? value : num(value);
+    renderPOEditorModal();
+}
+window.poUpdateItem = poUpdateItem;
+function poAddRow() { poSyncFromDom(); draftPO.items.push({ name: '', qty: 1, price: 0, receivedQty: 0 }); renderPOEditorModal(); }
+window.poAddRow = poAddRow;
+function savePO() {
+    poSyncFromDom();
+    if (!draftPO.supplierId) { showToast('تأمین‌کننده را انتخاب کنید', 'error'); return; }
+    const items = draftPO.items.filter(it => it.name.trim());
+    if (!items.length) { showToast('حداقل یک قلم کالا وارد کنید', 'error'); return; }
+    draftPO.items = items;
+    // auto-advance status based on receipt progress, unless already closed
+    const totalOrdered = items.reduce((s, it) => s + num(it.qty), 0);
+    const totalReceived = items.reduce((s, it) => s + Math.min(num(it.receivedQty), num(it.qty)), 0);
+    if (draftPO.status !== 'closed' && draftPO.status !== 'draft' && draftPO.status !== 'sent' && draftPO.status !== 'confirmed' && draftPO.status !== 'shipping') {
+        draftPO.status = totalReceived <= 0 ? draftPO.status : (totalReceived >= totalOrdered ? 'received' : 'partial');
+    }
+    const list = dbRead(K.purchaseOrders);
+    if (draftPO.id) { const idx = list.findIndex(p => p.id === draftPO.id); list[idx] = draftPO; }
+    else { draftPO.id = uid('po'); list.push(draftPO); }
+    dbWrite(K.purchaseOrders, list);
+    autoBackupTick();
+    closeModal();
+    showToast('سفارش خرید ذخیره شد', 'success');
+    switchView('purchaseOrders');
+}
+window.savePO = savePO;
+function deletePO(id) {
+    if (!confirmAction('حذف این سفارش خرید؟')) return;
+    dbWrite(K.purchaseOrders, dbRead(K.purchaseOrders).filter(p => p.id !== id));
+    autoBackupTick();
+    closeModal(); showToast('سفارش حذف شد', 'success'); switchView('purchaseOrders');
+}
+window.deletePO = deletePO;
+
+function openPODetail(id) {
+    const po = dbRead(K.purchaseOrders).find(p => p.id === id);
+    if (!po) return;
+    const supplier = dbRead(K.suppliers).find(s => s.id === po.supplierId);
+    const totalOrdered = po.items.reduce((s, it) => s + num(it.qty), 0);
+    const totalReceived = po.items.reduce((s, it) => s + num(it.receivedQty), 0);
+    const fullyReceived = totalReceived >= totalOrdered && totalOrdered > 0;
+    const html = `
+    ${viewHeader('زنجیره تأمین', `سفارش خرید #${po.number}`, `${esc(supplier ? supplier.name : '-')} · ${fmtDate(po.date)}`, `<button class="nav-btn" onclick="switchView('purchaseOrders')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <span class="badge ${poStatusBadgeClass(po.status)}" style="margin-bottom:10px; display:inline-block;">${poStatusLabel(po.status)}</span>
+    <table class="report-table" style="margin:10px 0;"><thead><tr><th>کالا</th><th>سفارش</th><th>دریافت‌شده</th><th>قیمت واحد</th></tr></thead>
+    <tbody>${po.items.map(it => `<tr><td class="text-cell">${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${num(it.receivedQty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td></tr>`).join('')}</tbody></table>
+    <div class="action-grid">
+        <button class="btn-action" onclick="openPOEditor('${po.id}')">✎ ویرایش / ثبت دریافت</button>
+        ${!po.linkedPurchaseId ? `<button class="calc-btn" onclick="convertPOToPurchase('${po.id}')">📥 تبدیل به فاکتور خرید</button>` : `<span class="badge badge-emerald" style="align-self:center;">✓ به فاکتور خرید تبدیل شد</span>`}
+    </div>
+    ${po.note ? `<p class="txt-body" style="margin-top:10px; color:var(--text-secondary);">${esc(po.note)}</p>` : ''}
+    `;
+    document.getElementById('viewRoot').innerHTML = html;
+    currentView = 'poDetail';
+}
+window.openPODetail = openPODetail;
+function convertPOToPurchase(poId) {
+    const po = dbRead(K.purchaseOrders).find(p => p.id === poId);
+    if (!po) return;
+    const supplier = dbRead(K.suppliers).find(s => s.id === po.supplierId);
+    if (!supplier) { showToast('تأمین‌کننده این سفارش یافت نشد', 'error'); return; }
+    const items = po.items.filter(it => num(it.receivedQty) > 0).map(it => ({ productId: '', name: it.name, qty: num(it.receivedQty), price: num(it.price) }));
+    if (!items.length) { showToast('هنوز هیچ مقداری از این سفارش دریافت نشده است', 'error'); return; }
+    const total = items.reduce((s, it) => s + it.qty * it.price, 0);
+    const purchases = dbRead(K.purchases);
+    const purchaseId = uid('pur');
+    const newPurchase = { id: purchaseId, number: (purchases.reduce((m, p) => Math.max(m, num(p.number)), 2000) + 1), date: todayISO(), supplier: supplier.name, supplierId: supplier.id, items, total, paidAmount: 0, status: 'unpaid', paymentMethod: 'cash', linkedPOId: po.id };
+    purchases.push(newPurchase);
+    dbWrite(K.purchases, purchases);
+    adjustStockByName(items, +1);
+    const poList = dbRead(K.purchaseOrders);
+    const idx = poList.findIndex(p => p.id === poId);
+    poList[idx].linkedPurchaseId = purchaseId;
+    poList[idx].status = (poList[idx].items.reduce((s, it) => s + num(it.receivedQty), 0) >= poList[idx].items.reduce((s, it) => s + num(it.qty), 0)) ? 'closed' : 'partial';
+    dbWrite(K.purchaseOrders, poList);
+    autoBackupTick();
+    showToast('فاکتور خرید ساخته شد و موجودی انبار به‌روزرسانی شد', 'success');
+    openPurchaseEditor(purchaseId);
+}
+window.convertPOToPurchase = convertPOToPurchase;
+
+/* ---------------------------------------------------------------------------
+   RFQ (استعلام قیمت) — send one request to several suppliers, record what
+   each quoted, compare side-by-side before deciding.
+   ------------------------------------------------------------------------- */
+function renderRFQs() {
+    const list = dbRead(K.rfqs).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    return `
+    ${viewHeader('زنجیره تأمین', 'استعلام قیمت (RFQ)', `${list.length.toLocaleString(localeForDigits())} استعلام`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openRFQEditor()" title="استعلام جدید"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(r => {
+        const cheapest = r.quotes.filter(q => num(q.price) > 0).sort((a, b) => a.price - b.price)[0];
+        return `<div class="list-item" style="cursor:pointer;" onclick="openRFQEditor('${r.id}')">
+            <div class="list-item-row"><div><div class="list-item-title">${esc(r.itemName)}</div><div class="list-item-sub">${fmtDate(r.date)} · ${r.quotes.length.toLocaleString(localeForDigits())} تأمین‌کننده</div></div>
+            ${cheapest ? `<div class="txt-caption">ارزان‌ترین: ${esc(cheapest.supplierName)} — ${moneyPlain(cheapest.price)}</div>` : ''}</div>
+        </div>`;
+    }).join('') : `<div class="empty-state">هنوز استعلامی ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.rfqs = renderRFQs;
+function openRFQEditor(id) {
+    const r = id ? dbRead(K.rfqs).find(x => x.id === id) : { id: null, itemName: '', date: todayISO(), quotes: [{ supplierName: '', price: 0 }, { supplierName: '', price: 0 }] };
+    window._rfqDraft = JSON.parse(JSON.stringify(r));
+    renderRFQEditorModal();
+}
+window.openRFQEditor = openRFQEditor;
+function renderRFQEditorModal() {
+    const d = window._rfqDraft;
+    const html = `
+        <div class="input-group"><label>نام کالا *</label><input type="text" id="rfq_item" value="${esc(d.itemName)}"></div>
+        ${jalaliDateField('rfq_date', d.date, 'تاریخ')}
+        <div class="section-title">قیمت‌های اعلامی</div>
+        ${d.quotes.map((q, i) => `<div class="mini-form-grid" style="margin-bottom:6px;">
+            <div class="input-group"><label>تأمین‌کننده</label><input type="text" value="${esc(q.supplierName)}" oninput="rfqUpdate(${i},'supplierName',this.value)"></div>
+            <div class="input-group"><label>قیمت پیشنهادی</label><input type="text" inputmode="numeric" value="${num(q.price)}" oninput="rfqUpdate(${i},'price',this.value)"></div>
+        </div>`).join('')}
+        <button class="btn-action" style="width:100%;" type="button" onclick="rfqAddRow()">+ افزودن تأمین‌کننده</button>
+        <button class="calc-btn" style="margin-top:10px;" onclick="saveRFQ()">${d.id ? 'ذخیره تغییرات' : 'ثبت استعلام'}</button>
+        ${d.id ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deleteRFQ('${d.id}')">حذف استعلام</button>` : ''}
+    `;
+    openModal(d.id ? 'ویرایش استعلام قیمت' : 'استعلام قیمت جدید', html);
+}
+function rfqSyncFromDom() {
+    const itemEl = document.getElementById('rfq_item'); if (itemEl) window._rfqDraft.itemName = itemEl.value;
+    const dateIso = getJalaliInputISO('rfq_date'); if (dateIso) window._rfqDraft.date = dateIso;
+}
+function rfqUpdate(i, field, value) { rfqSyncFromDom(); window._rfqDraft.quotes[i][field] = field === 'price' ? num(value) : value; renderRFQEditorModal(); }
+window.rfqUpdate = rfqUpdate;
+function rfqAddRow() { rfqSyncFromDom(); window._rfqDraft.quotes.push({ supplierName: '', price: 0 }); renderRFQEditorModal(); }
+window.rfqAddRow = rfqAddRow;
+function saveRFQ() {
+    rfqSyncFromDom();
+    const d = window._rfqDraft;
+    if (!d.itemName.trim()) { showToast('نام کالا را وارد کنید', 'error'); return; }
+    d.quotes = d.quotes.filter(q => q.supplierName.trim());
+    const list = dbRead(K.rfqs);
+    if (d.id) { const idx = list.findIndex(x => x.id === d.id); list[idx] = d; }
+    else { d.id = uid('rfq'); list.push(d); }
+    dbWrite(K.rfqs, list);
+    autoBackupTick();
+    closeModal(); showToast('استعلام ذخیره شد', 'success'); switchView('rfqs');
+}
+window.saveRFQ = saveRFQ;
+function deleteRFQ(id) {
+    if (!confirmAction('حذف این استعلام؟')) return;
+    dbWrite(K.rfqs, dbRead(K.rfqs).filter(x => x.id !== id));
+    autoBackupTick();
+    closeModal(); showToast('استعلام حذف شد', 'success'); switchView('rfqs');
+}
+window.deleteRFQ = deleteRFQ;
+
+/* ---------------------------------------------------------------------------
+   Blanket orders (سفارش کلی/دوره‌ای) — a standing agreement for a total
+   quantity over a period, delivered in installments; we just track the
+   commitment vs. how much has been delivered so far.
+   ------------------------------------------------------------------------- */
+function renderBlanketOrders() {
+    const list = dbRead(K.blanketOrders).slice().sort((a, b) => new Date(b.startDate) - new Date(a.startDate));
+    return `
+    ${viewHeader('زنجیره تأمین', 'سفارش‌های کلی/دوره‌ای', `${list.length.toLocaleString(localeForDigits())} توافق`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openBlanketOrderEditor()" title="توافق جدید"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(b => {
+        const supplier = dbRead(K.suppliers).find(s => s.id === b.supplierId);
+        const pct = b.totalQty ? Math.min(100, Math.round(num(b.deliveredQty) / num(b.totalQty) * 100)) : 0;
+        return `<div class="list-item" style="cursor:pointer;" onclick="openBlanketOrderEditor('${b.id}')">
+            <div class="list-item-row"><div><div class="list-item-title">${esc(b.itemName)} — ${esc(supplier ? supplier.name : '-')}</div><div class="list-item-sub">${fmtDate(b.startDate)} تا ${fmtDate(b.endDate)} · ${num(b.deliveredQty).toLocaleString(localeForDigits())} از ${num(b.totalQty).toLocaleString(localeForDigits())}</div></div>
+            <div class="badge badge-cyan">${pct}٪</div></div>
+        </div>`;
+    }).join('') : `<div class="empty-state">هنوز سفارش کلی/دوره‌ای ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.blanketOrders = renderBlanketOrders;
+function openBlanketOrderEditor(id) {
+    const b = id ? dbRead(K.blanketOrders).find(x => x.id === id) : null;
+    const suppliers = dbRead(K.suppliers);
+    const html = `
+        <div class="input-group"><label>تأمین‌کننده *</label>
+            <select id="bo_supplier">${suppliers.map(s => `<option value="${s.id}" ${b && b.supplierId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>نام کالا *</label><input type="text" id="bo_item" value="${esc(b ? b.itemName : '')}"></div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>مقدار کل توافق‌شده</label><input type="text" inputmode="numeric" id="bo_total" value="${b ? num(b.totalQty) : ''}"></div>
+            <div class="input-group"><label>مقدار تحویل‌شده تاکنون</label><input type="text" inputmode="numeric" id="bo_delivered" value="${b ? num(b.deliveredQty) : 0}"></div>
+        </div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('bo_start', b ? b.startDate : todayISO(), 'شروع دوره')}
+            ${jalaliDateField('bo_end', b ? b.endDate : '', 'پایان دوره')}
+        </div>
+        <button class="calc-btn" onclick="saveBlanketOrder('${id || ''}')">${b ? 'ذخیره تغییرات' : 'ثبت توافق'}</button>
+        ${b ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deleteBlanketOrder('${id}')">حذف</button>` : ''}
+    `;
+    openModal(b ? 'ویرایش سفارش کلی' : 'سفارش کلی/دوره‌ای جدید', html);
+}
+window.openBlanketOrderEditor = openBlanketOrderEditor;
+function saveBlanketOrder(id) {
+    const supplierId = document.getElementById('bo_supplier').value;
+    const itemName = document.getElementById('bo_item').value.trim();
+    if (!supplierId || !itemName) { showToast('تأمین‌کننده و نام کالا الزامی است', 'error'); return; }
+    const list = dbRead(K.blanketOrders);
+    const data = { supplierId, itemName, totalQty: num(document.getElementById('bo_total').value), deliveredQty: num(document.getElementById('bo_delivered').value), startDate: getJalaliInputISO('bo_start') || todayISO(), endDate: getJalaliInputISO('bo_end') || todayISO() };
+    if (id) { const idx = list.findIndex(x => x.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
+    else list.push(Object.assign({ id: uid('bo') }, data));
+    dbWrite(K.blanketOrders, list);
+    autoBackupTick();
+    closeModal(); showToast('توافق ذخیره شد', 'success'); switchView('blanketOrders');
+}
+window.saveBlanketOrder = saveBlanketOrder;
+function deleteBlanketOrder(id) {
+    if (!confirmAction('حذف این توافق؟')) return;
+    dbWrite(K.blanketOrders, dbRead(K.blanketOrders).filter(x => x.id !== id));
+    autoBackupTick();
+    closeModal(); showToast('توافق حذف شد', 'success'); switchView('blanketOrders');
+}
+window.deleteBlanketOrder = deleteBlanketOrder;
+
+/* ---------------------------------------------------------------------------
+   Supply-chain hub — the entry point (nav item) linking to every sub-section
+   above, plus a few at-a-glance KPIs (a light preview of the full KPI report
+   planned later).
+   ------------------------------------------------------------------------- */
+function renderSupplyChainHub() {
+    migrateSuppliersToEntities();
+    const suppliers = dbRead(K.suppliers);
+    const openPOs = dbRead(K.purchaseOrders).filter(p => !['closed', 'received'].includes(p.status));
+    const totalOwed = suppliers.reduce((s, sup) => s + supplierBalance(sup.id), 0);
+    const lowStock = dbRead(K.products).filter(p => num(p.qty) <= num(p.minQty));
+    return `
+    ${viewHeader('زنجیره تأمین', 'داشبورد زنجیره تأمین', 'مدیریت کامل تأمین‌کنندگان، سفارش‌ها و خرید')}
+    <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val">${suppliers.length.toLocaleString(localeForDigits())}</div><div class="stat-label">تأمین‌کننده</div></div>
+        <div class="stat-card"><div class="stat-val">${openPOs.length.toLocaleString(localeForDigits())}</div><div class="stat-label">سفارش خرید باز</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:var(--accent-rose);">${money(totalOwed)}</div><div class="stat-label">بدهی کل به تأمین‌کنندگان</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:var(--accent-amber);">${lowStock.length.toLocaleString(localeForDigits())}</div><div class="stat-label">کالای رو به اتمام</div></div>
+    </div>
+    <div class="action-grid" style="grid-template-columns:repeat(2,1fr);">
+        <button class="btn-action" style="height:70px;" onclick="switchView('suppliers')">🏭<br>تأمین‌کنندگان</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('purchaseOrders')">📋<br>سفارش‌های خرید</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('rfqs')">💬<br>استعلام قیمت (RFQ)</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('blanketOrders')">📆<br>سفارش کلی/دوره‌ای</button>
+    </div>
+    <p class="txt-caption" style="margin-top:14px;">این ماژول در حال گسترش است — بخش‌های بیشتر (چند انباری، بارکد، ردیابی بچ، گزارش KPI کامل و ...) به‌تدریج اضافه می‌شوند.</p>
+    `;
+}
+VIEW_RENDERERS.supplyChainHub = renderSupplyChainHub;
+
 /* ---------------------------------------------------------------------------
    Add-partner wizard: when a solo owner brings in a partner after already
    trading for a while, we first need to capture the owner's current capital
@@ -5981,7 +6657,7 @@ const HELP_SECTIONS = [
     ['نکته مهم درباره ذخیره‌سازی', `این نرم‌افزار کاملاً محلی (client-side) است و اطلاعات فقط در همان مرورگر/دستگاه شما ذخیره می‌شود؛ هیچ سروری اطلاعات شما را دریافت نمی‌کند. برای همگام‌سازی بین چند دستگاه یا دسترسی چندکاربره آنلاین، نیاز به افزودن یک سرویس بک‌اند (مانند Firebase) دارد که در نسخه فعلی پیاده‌سازی نشده است.`]
 ];
 
-const APP_BUILD_LABEL = 'نسخه ۹ — بروزرسانی ۱۴ شهریور ۱۴۰۵ (باگ‌های بخش ۱ + حالت ساده/حرفه‌ای)';
+const APP_BUILD_LABEL = 'نسخه ۱۰ — بروزرسانی ۱۵ شهریور ۱۴۰۵ (شروع ماژول زنجیره تأمین — گروه الف)';
 function renderHelp() {
     return `
     ${viewHeader('سیستم', 'راهنمای کامل برنامه', 'آموزش گام‌به‌گام استفاده از حسابداری پلاس برای کاربران تازه‌کار')}
