@@ -37,7 +37,14 @@ const K = {
     supplierPrepayments: 'ap_supplier_prepayments',
     supplierPrices: 'ap_supplier_prices',
     consignmentStock: 'ap_consignment_stock',
-    shipments: 'ap_shipments'
+    shipments: 'ap_shipments',
+    warehouses: 'ap_warehouses',
+    batches: 'ap_batches',
+    wastage: 'ap_wastage',
+    backorders: 'ap_backorders',
+    purchaseBudgets: 'ap_purchase_budgets',
+    supplierContracts: 'ap_supplier_contracts',
+    warrantyClaims: 'ap_warranty_claims'
 };
 
 /* Wrap the browser confirm() so the "confirm before destructive action" setting can be honored. */
@@ -442,6 +449,7 @@ function openModal(title, bodyHtml) {
 }
 function closeModal() {
     document.getElementById('modalOverlay').classList.remove('active');
+    if (typeof stopBarcodeScanner === 'function') stopBarcodeScanner();
 }
 function closeModalOnOverlay(e) {
     if (e.target.id === 'modalOverlay') closeModal();
@@ -1279,19 +1287,22 @@ function obSelectAppMode(mode) { onboardState.appMode = mode; renderOnboard(); }
 window.obSelectAppMode = obSelectAppMode;
 
 function obCollectStep() {
+    if (onboardState.phase !== 'wizard') return; // fields for this step don't exist outside the wizard phase (intro/account screens)
+    const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+    const checked = (id) => { const el = document.getElementById(id); return el ? el.checked : false; };
     if (onboardState.step === 1) {
-        onboardState.storeName = document.getElementById('ob_storeName').value.trim();
-        onboardState.ownerName = document.getElementById('ob_ownerName').value.trim();
-        onboardState.phone = document.getElementById('ob_phone').value.trim();
+        onboardState.storeName = val('ob_storeName').trim();
+        onboardState.ownerName = val('ob_ownerName').trim();
+        onboardState.phone = val('ob_phone').trim();
     } else if (onboardState.step === 2) {
-        onboardState.address = document.getElementById('ob_address').value.trim();
+        onboardState.address = val('ob_address').trim();
     } else if (onboardState.step === 3) {
         if (onboardState.hasPartners) obSyncPartnerDraft();
     } else {
-        onboardState.currency = document.getElementById('ob_currency').value;
-        onboardState.taxEnabled = document.getElementById('ob_taxEnabled').checked;
-        onboardState.taxPercent = num(document.getElementById('ob_taxPercent').value) || 9;
-        onboardState.loadDemo = document.getElementById('ob_loadDemo').checked;
+        onboardState.currency = val('ob_currency') || onboardState.currency;
+        onboardState.taxEnabled = checked('ob_taxEnabled');
+        onboardState.taxPercent = num(val('ob_taxPercent')) || 9;
+        onboardState.loadDemo = checked('ob_loadDemo');
     }
 }
 
@@ -1831,6 +1842,7 @@ function renderProducts() {
     </div>
     <div class="search-bar">
         <input type="text" placeholder="جستجوی نام یا دسته کالا..." value="${esc(productSearchTerm)}" oninput="productSearchTerm=this.value; rerenderIfActive('products')">
+        ${isProMode() ? `<button class="fab-add" style="background:var(--surface-2); color:var(--text-main);" onclick="scanBarcodeToFindProduct()" title="اسکن بارکد برای جستجوی کالا">📷</button>` : ''}
         <button class="fab-add" onclick="openProductEditor()" title="افزودن کالا">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
@@ -1923,7 +1935,22 @@ function openProductEditor(id) {
             <div class="input-group"><label>موجودی فعلی</label><input type="text" inputmode="numeric" id="pf_qty" value="${p ? num(p.qty) : 0}" placeholder="0"></div>
             <div class="input-group"><label>حداقل موجودی هشدار</label><input type="text" inputmode="numeric" id="pf_minqty" value="${p ? num(p.minQty) : 3}" placeholder="3"></div>
         </div>
+        ${isProMode() ? `
+        <div class="section-title" style="margin-top:4px;">زنجیره تأمین (اختیاری)</div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>کد کالا (SKU)</label><input type="text" id="pf_sku" value="${esc(p ? p.sku || '' : '')}" placeholder="مثلاً SHRT-001"></div>
+            <div class="input-group"><label>بارکد</label>
+                <div style="display:flex; gap:6px;">
+                    <input type="text" id="pf_barcode" value="${esc(p ? p.barcode || '' : '')}" placeholder="عدد بارکد" style="flex:1;">
+                    <button type="button" class="jalali-date-btn" onclick="scanBarcodeIntoField('pf_barcode')" title="اسکن با دوربین">📷</button>
+                </div>
+            </div>
+            <div class="input-group"><label>زمان تحویل تأمین‌کننده (روز)</label><input type="text" inputmode="numeric" id="pf_leadtime" value="${p ? num(p.leadTimeDays) || '' : ''}" placeholder="مثلاً 7"></div>
+            <div class="input-group"><label>واحد خرید (اگر متفاوت از واحد فروش است)</label><input type="text" id="pf_purchaseunit" value="${esc(p ? p.purchaseUnit || '' : '')}" placeholder="مثلاً کارتن"></div>
+            <div class="input-group"><label>تعداد واحد فروش در هر واحد خرید</label><input type="text" inputmode="numeric" id="pf_purchaseunitqty" value="${p ? num(p.purchaseUnitQty) || '' : ''}" placeholder="مثلاً 12"></div>
+        </div>` : ''}
         <button class="calc-btn" onclick="saveProduct('${id || ''}')">${p ? 'ذخیره تغییرات' : 'افزودن کالا'}</button>
+        ${isProMode() && p && (p.sku || p.barcode) ? `<button class="btn-action" style="width:100%; margin-top:8px;" onclick="printBarcodeLabel('${id}')">🏷 چاپ برچسب بارکد</button>` : ''}
         ${p ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deleteProduct('${id}')">حذف کالا</button>` : ''}
     `;
     openModal(p ? 'ویرایش کالا' : 'کالای جدید', html);
@@ -1954,6 +1981,15 @@ function saveProduct(id) {
         qty: num(document.getElementById('pf_qty').value),
         minQty: num(document.getElementById('pf_minqty').value)
     };
+    if (isProMode() && document.getElementById('pf_sku')) {
+        Object.assign(data, {
+            sku: document.getElementById('pf_sku').value.trim(),
+            barcode: document.getElementById('pf_barcode').value.trim(),
+            leadTimeDays: num(document.getElementById('pf_leadtime').value),
+            purchaseUnit: document.getElementById('pf_purchaseunit').value.trim(),
+            purchaseUnitQty: num(document.getElementById('pf_purchaseunitqty').value)
+        });
+    }
     let created = null;
     if (id) {
         const idx = list.findIndex(p => p.id === id);
@@ -2708,6 +2744,30 @@ function adjustStock(items, sign) {
     });
     if (changed) dbWrite(K.products, products);
 }
+/* FEFO (First-Expired-First-Out) batch deduction on sale — informational/tracking layer only:
+   it never blocks or alters the sale itself (product.qty via adjustStock above remains the single
+   source of truth for total stock), it just keeps the batch/expiry ledger honest so the expiry
+   dashboard stays accurate. Best-effort: if a product has no tracked batches, this is a no-op. */
+function deductBatchesFEFO(items) {
+    const batches = dbRead(K.batches);
+    if (!batches.length) return;
+    let changed = false;
+    items.forEach(it => {
+        if (it.isConsignment) return;
+        let remaining = num(it.qty);
+        const productBatches = batches.filter(b => (it.productId && b.productId === it.productId) || (!it.productId && b.productName === it.name))
+            .filter(b => num(b.qtyRemaining) > 0)
+            .sort((a, b) => new Date(a.expiryDate || '9999-12-31') - new Date(b.expiryDate || '9999-12-31'));
+        for (const b of productBatches) {
+            if (remaining <= 0) break;
+            const take = Math.min(remaining, num(b.qtyRemaining));
+            b.qtyRemaining = num(b.qtyRemaining) - take;
+            remaining -= take;
+            changed = true;
+        }
+    });
+    if (changed) dbWrite(K.batches, batches);
+}
 
 function saveInvoice() {
     const customerId = document.getElementById('if_customer').value || null;
@@ -2742,7 +2802,7 @@ function saveInvoice() {
             customerId, customerNameSnapshot: customer ? customer.name : 'مشتری نقدی',
             items, discountTotal, taxAmount, interestAmount, total, paidAmount, status, note, invoiceType, paymentMethod, paymentDetails, date, excludeFromPartnership
         });
-        if (invoiceType !== 'proforma') adjustStock(items, -1);
+        if (invoiceType !== 'proforma') { adjustStock(items, -1); deductBatchesFEFO(items); }
     } else {
         savedId = uid('inv');
         list.push({
@@ -2750,7 +2810,7 @@ function saveInvoice() {
             customerNameSnapshot: customer ? customer.name : 'مشتری نقدی', items, discountTotal, taxAmount, interestAmount, total,
             paidAmount, status, note, invoiceType, paymentMethod, paymentDetails, excludeFromPartnership
         });
-        if (invoiceType !== 'proforma') adjustStock(items, -1);
+        if (invoiceType !== 'proforma') { adjustStock(items, -1); deductBatchesFEFO(items); }
     }
     dbWrite(K.invoices, list);
 
@@ -4091,7 +4151,7 @@ window.manualCloudSync = manualCloudSync;
    menu doesn't feel overwhelming. Switching modes only changes what's shown;
    no data is ever deleted.
    ------------------------------------------------------------------------- */
-const PRO_ONLY_VIEWS = ['partners', 'supplyChainHub', 'suppliers', 'supplierDetail', 'purchaseOrders', 'poDetail', 'rfqs', 'blanketOrders'];
+const PRO_ONLY_VIEWS = ['partners', 'supplyChainHub', 'suppliers', 'supplierDetail', 'purchaseOrders', 'poDetail', 'rfqs', 'blanketOrders', 'reorderSuggestions', 'warehouses', 'warehouseStockReport', 'wastage', 'backorders', 'abcAnalysis', 'purchaseBudgets', 'supplierContracts', 'warrantyClaims', 'purchaseCalendar', 'notifications', 'inventoryTurnover', 'demandForecast', 'supplyChainKPI', 'batchTracking'];
 function isProMode() { return (getSettings().appMode || 'pro') !== 'simple'; }
 function applyAppModeVisibility() {
     const pro = isProMode();
@@ -5235,6 +5295,16 @@ function openSupplierEditor(id) {
             </div>
         </div>
         <div class="input-group"><label>حداقل مقدار سفارش (MOQ) — اختیاری</label><input type="text" inputmode="numeric" id="sp_moq" value="${s ? num(s.moq) || '' : ''}" placeholder="مثلاً 50"></div>
+        <div class="section-title" style="margin-top:4px;">مدارک رسمی (اختیاری)</div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>شناسه/کد اقتصادی</label><input type="text" id="sp_econcode" value="${esc(s ? s.economicCode || '' : '')}"></div>
+            <div class="input-group"><label>شماره حساب/شبا بانکی</label><input type="text" id="sp_bankaccount" value="${esc(s ? s.bankAccount || '' : '')}"></div>
+        </div>
+        <div class="section-title" style="margin-top:4px;">زنجیره تأمین چندمرحله‌ای (اختیاری)</div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>تولیدکننده اصلی</label><input type="text" id="sp_manufacturer" value="${esc(s ? s.manufacturerName || '' : '')}" placeholder="مبدأ کالا"></div>
+            <div class="input-group"><label>توزیع‌کننده واسط</label><input type="text" id="sp_distributor" value="${esc(s ? s.distributorName || '' : '')}"></div>
+        </div>
         <div class="section-title" style="margin-top:4px;">امتیاز تأمین‌کننده (۱ تا ۵)</div>
         <div class="mini-form-grid" style="grid-template-columns:repeat(3,1fr);">
             <div class="input-group"><label>کیفیت</label><input type="text" inputmode="numeric" id="sp_qrate" value="${s ? num(s.qualityRating) || '' : ''}"></div>
@@ -5256,6 +5326,8 @@ function saveSupplier(id) {
         name, phone: document.getElementById('sp_phone').value.trim(), contactPerson: document.getElementById('sp_contact').value.trim(),
         address: document.getElementById('sp_address').value.trim(), category: document.getElementById('sp_category').value,
         paymentTerms: document.getElementById('sp_terms').value, moq: num(document.getElementById('sp_moq').value),
+        economicCode: document.getElementById('sp_econcode').value.trim(), bankAccount: document.getElementById('sp_bankaccount').value.trim(),
+        manufacturerName: document.getElementById('sp_manufacturer').value.trim(), distributorName: document.getElementById('sp_distributor').value.trim(),
         qualityRating: num(document.getElementById('sp_qrate').value), speedRating: num(document.getElementById('sp_srate').value), priceRating: num(document.getElementById('sp_prate').value),
         notes: document.getElementById('sp_notes').value.trim()
     };
@@ -5325,11 +5397,27 @@ function openSupplierDetail(id) {
         <button class="calc-btn" onclick="openPurchaseEditorForSupplier('${id}')">+ خرید جدید</button>
     </div>
     ${s.moq ? `<p class="txt-caption" style="margin-top:8px;">حداقل مقدار سفارش (MOQ): ${num(s.moq).toLocaleString(localeForDigits())}</p>` : ''}
+    ${(() => { const qc = supplierQCStats(id); return qc.total ? `<div class="section-box"><div class="section-title">کنترل کیفیت دریافت (QC)</div>
+        <div class="totals-row"><span>سالم</span><span style="color:var(--accent-emerald);">${qc.good.toLocaleString(localeForDigits())}</span></div>
+        <div class="totals-row"><span>معیوب</span><span style="color:var(--accent-rose);">${qc.defective.toLocaleString(localeForDigits())}</span></div>
+        <div class="totals-row"><span>کسری</span><span style="color:var(--accent-amber);">${qc.short.toLocaleString(localeForDigits())}</span></div>
+        <div class="totals-row grand"><span>نرخ معیوبی</span><span>${qc.defectRate}٪</span></div>
+    </div>` : ''; })()}
     ${s.address || s.phone || s.contactPerson ? `<div class="section-box"><div class="section-title">اطلاعات تماس</div>
         ${s.phone ? `<div class="txt-body">📞 ${esc(s.phone)}</div>` : ''}
         ${s.contactPerson ? `<div class="txt-body">👤 فرد رابط: ${esc(s.contactPerson)}</div>` : ''}
         ${s.address ? `<div class="txt-body">📍 ${esc(s.address)}</div>` : ''}
     </div>` : ''}
+    ${s.economicCode || s.bankAccount ? `<div class="section-box"><div class="section-title">مدارک رسمی</div>
+        ${s.economicCode ? `<div class="txt-body">🧾 کد اقتصادی: ${esc(s.economicCode)}</div>` : ''}
+        ${s.bankAccount ? `<div class="txt-body">🏦 حساب بانکی: ${esc(s.bankAccount)}</div>` : ''}
+    </div>` : ''}
+    ${s.manufacturerName || s.distributorName ? `<div class="section-box"><div class="section-title">زنجیره تأمین چندمرحله‌ای</div>
+        ${s.manufacturerName ? `<div class="txt-body">🏭 تولیدکننده اصلی: ${esc(s.manufacturerName)}</div>` : ''}
+        ${s.distributorName ? `<div class="txt-body">🚛 توزیع‌کننده واسط: ${esc(s.distributorName)}</div>` : ''}
+        <div class="txt-body">📍 تأمین‌کننده نهایی (این کارت): ${esc(s.name)}</div>
+    </div>` : ''}
+    ${attachmentsHtml(s, K.suppliers, id)}
 
     <div class="section-box">
         <div class="section-title">تاریخچه خرید (${history.length.toLocaleString(localeForDigits())})</div>
@@ -5508,6 +5596,42 @@ function renderPOEditorModal() {
         <div class="section-title">اقلام سفارش</div>
         <div id="po_itemsWrap">${d.items.map((it, idx) => poItemRowHtml(it, idx)).join('')}</div>
         <button class="btn-action" style="width:100%;" type="button" onclick="poAddRow()">+ افزودن ردیف</button>
+
+        <div class="section-title" style="margin-top:10px;">ارز و نرخ (برای تأمین‌کننده خارجی — اختیاری)</div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>واحد پول خرید</label>
+                <select id="po_currency">${['تومان', 'دلار', 'یورو', 'یوان', 'درهم', 'لیر ترکیه'].map(c => `<option value="${c}" ${(d.currency || 'تومان') === c ? 'selected' : ''}>${c}</option>`).join('')}</select>
+            </div>
+            <div class="input-group"><label>نرخ تبدیل به تومان</label><input type="text" inputmode="numeric" id="po_fxrate" value="${d.fxRate ? num(d.fxRate) : ''}" placeholder="در صورت ارز خارجی"></div>
+        </div>
+
+        <div class="section-title" style="margin-top:10px;">هزینه‌های جانبی خرید (Landed Cost)</div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>حمل و نقل</label><input type="text" inputmode="numeric" id="po_freight" value="${num(d.freightCost) || ''}" placeholder="0"></div>
+            <div class="input-group"><label>گمرک/عوارض</label><input type="text" inputmode="numeric" id="po_customs" value="${num(d.customsFee) || ''}" placeholder="0"></div>
+            <div class="input-group"><label>بیمه</label><input type="text" inputmode="numeric" id="po_insurance" value="${num(d.insuranceCost) || ''}" placeholder="0"></div>
+            <div class="input-group"><label>انبارداری</label><input type="text" inputmode="numeric" id="po_warehousing" value="${num(d.warehousingCost) || ''}" placeholder="0"></div>
+        </div>
+        <p class="txt-caption">این هزینه‌ها هنگام تبدیل به فاکتور خرید، به‌صورت سرشکن بین اقلام به قیمت تمام‌شده هر کالا اضافه می‌شوند تا سود واقعی درست محاسبه شود.</p>
+
+        <div class="section-title" style="margin-top:10px;">لجستیک و مدارک گمرکی (اختیاری)</div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>شماره پیگیری/بارنامه</label><input type="text" id="po_tracking" value="${esc(d.trackingNumber || '')}"></div>
+            <div class="input-group"><label>وضعیت حمل</label>
+                <select id="po_shipstatus">
+                    ${[['prep', 'آماده‌سازی'], ['shipped', 'ارسال‌شده'], ['customs', 'گمرک'], ['delivered', 'تحویل‌شده']].map(([v, l]) => `<option value="${v}" ${d.shippingStatus === v ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('po_expected', d.expectedDeliveryDate || '', 'تاریخ تحویل موردانتظار')}
+            ${jalaliDateField('po_actual', d.actualDeliveryDate || '', 'تاریخ تحویل واقعی')}
+        </div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>شماره کوتاژ گمرکی</label><input type="text" id="po_cottage" value="${esc(d.cottageNumber || '')}"></div>
+            <div class="input-group"><label>شماره فاکتور رسمی/مجوز ورود</label><input type="text" id="po_import" value="${esc(d.importDocNumber || '')}"></div>
+        </div>
+
         <div class="input-group" style="margin-top:10px;"><label>یادداشت</label><textarea id="po_note">${esc(d.note || '')}</textarea></div>
         <button class="calc-btn" onclick="savePO()">${d.id ? 'ذخیره تغییرات' : 'ثبت سفارش خرید'}</button>
         ${d.id ? `<button class="btn-action" style="width:100%; margin-top:8px; color:var(--accent-rose);" onclick="deletePO('${d.id}')">حذف سفارش</button>` : ''}
@@ -5520,6 +5644,18 @@ function poItemRowHtml(it, idx) {
         <div class="input-group"><label>تعداد سفارش</label><input type="text" inputmode="numeric" value="${num(it.qty)}" oninput="poUpdateItem(${idx},'qty',this.value)"></div>
         <div class="input-group"><label>قیمت واحد</label><input type="text" inputmode="numeric" value="${num(it.price)}" oninput="poUpdateItem(${idx},'price',this.value)"></div>
         <div class="input-group"><label>دریافت‌شده</label><input type="text" inputmode="numeric" value="${num(it.receivedQty)}" oninput="poUpdateItem(${idx},'receivedQty',this.value)"></div>
+    </div>
+    <div class="mini-form-grid" style="grid-template-columns:1fr 1fr 1fr; align-items:end; margin:-2px 0 10px;">
+        <div class="input-group"><label style="font-size:0.68rem;">کیفیت دریافت (QC)</label>
+            <select onchange="poUpdateItem(${idx},'qcStatus',this.value)">
+                <option value="">— بررسی نشده —</option>
+                <option value="good" ${it.qcStatus === 'good' ? 'selected' : ''}>✓ سالم</option>
+                <option value="defective" ${it.qcStatus === 'defective' ? 'selected' : ''}>✗ معیوب</option>
+                <option value="short" ${it.qcStatus === 'short' ? 'selected' : ''}>⚠ کسری</option>
+            </select>
+        </div>
+        <div class="input-group"><label style="font-size:0.68rem;">شماره بچ (اختیاری)</label><input type="text" value="${esc(it.batchNumber || '')}" oninput="poUpdateItem(${idx},'batchNumber',this.value)" placeholder="مثلاً B-2405"></div>
+        ${jalaliDateField(`po_exp_${idx}`, it.expiryDate || '', 'تاریخ انقضا (اختیاری)')}
     </div>`;
 }
 function poSyncFromDom() {
@@ -5527,10 +5663,24 @@ function poSyncFromDom() {
     const dateIso = getJalaliInputISO('po_date'); if (dateIso) draftPO.date = dateIso;
     const statusEl = document.getElementById('po_status'); if (statusEl) draftPO.status = statusEl.value;
     const noteEl = document.getElementById('po_note'); if (noteEl) draftPO.note = noteEl.value;
+    const curEl = document.getElementById('po_currency'); if (curEl) draftPO.currency = curEl.value;
+    const fxEl = document.getElementById('po_fxrate'); if (fxEl) draftPO.fxRate = num(fxEl.value);
+    const freightEl = document.getElementById('po_freight'); if (freightEl) draftPO.freightCost = num(freightEl.value);
+    const customsEl = document.getElementById('po_customs'); if (customsEl) draftPO.customsFee = num(customsEl.value);
+    const insEl = document.getElementById('po_insurance'); if (insEl) draftPO.insuranceCost = num(insEl.value);
+    const whEl = document.getElementById('po_warehousing'); if (whEl) draftPO.warehousingCost = num(whEl.value);
+    const trackEl = document.getElementById('po_tracking'); if (trackEl) draftPO.trackingNumber = trackEl.value.trim();
+    const shipEl = document.getElementById('po_shipstatus'); if (shipEl) draftPO.shippingStatus = shipEl.value;
+    const expEl = getJalaliInputISO('po_expected'); if (expEl) draftPO.expectedDeliveryDate = expEl;
+    const actEl = getJalaliInputISO('po_actual'); if (actEl) draftPO.actualDeliveryDate = actEl;
+    const cotEl = document.getElementById('po_cottage'); if (cotEl) draftPO.cottageNumber = cotEl.value.trim();
+    const impEl = document.getElementById('po_import'); if (impEl) draftPO.importDocNumber = impEl.value.trim();
+    (draftPO.items || []).forEach((it, idx) => { const exp = getJalaliInputISO(`po_exp_${idx}`); if (exp) it.expiryDate = exp; });
 }
 function poUpdateItem(idx, field, value) {
     poSyncFromDom();
-    draftPO.items[idx][field] = (field === 'name') ? value : num(value);
+    const textFields = ['name', 'qcStatus', 'batchNumber'];
+    draftPO.items[idx][field] = textFields.includes(field) ? value : num(value);
     renderPOEditorModal();
 }
 window.poUpdateItem = poUpdateItem;
@@ -5578,8 +5728,27 @@ function openPODetail(id) {
     <span class="badge ${poStatusBadgeClass(po.status)}" style="margin-bottom:10px; display:inline-block;">${poStatusLabel(po.status)}</span>
     <table class="report-table" style="margin:10px 0;"><thead><tr><th>کالا</th><th>سفارش</th><th>دریافت‌شده</th><th>قیمت واحد</th></tr></thead>
     <tbody>${po.items.map(it => `<tr><td class="text-cell">${esc(it.name)}</td><td>${num(it.qty).toLocaleString(localeForDigits())}</td><td>${num(it.receivedQty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(it.price)}</td></tr>`).join('')}</tbody></table>
+    ${(po.trackingNumber || po.shippingStatus || po.expectedDeliveryDate) ? `<div class="section-box">
+        <div class="section-title">لجستیک و حمل</div>
+        ${po.trackingNumber ? `<div class="txt-body">📦 شماره پیگیری: ${esc(po.trackingNumber)}</div>` : ''}
+        ${po.shippingStatus ? `<div class="txt-body">🚚 وضعیت: ${esc({ prep: 'آماده‌سازی', shipped: 'ارسال‌شده', customs: 'گمرک', delivered: 'تحویل‌شده' }[po.shippingStatus] || po.shippingStatus)}</div>` : ''}
+        ${po.expectedDeliveryDate ? `<div class="txt-body">📅 تحویل موردانتظار: ${fmtDate(po.expectedDeliveryDate)}</div>` : ''}
+        ${po.actualDeliveryDate ? `<div class="txt-body">✅ تحویل واقعی: ${fmtDate(po.actualDeliveryDate)}</div>` : ''}
+        ${po.cottageNumber ? `<div class="txt-body">🛃 شماره کوتاژ: ${esc(po.cottageNumber)}</div>` : ''}
+    </div>` : ''}
+    ${(num(po.freightCost) || num(po.customsFee) || num(po.insuranceCost) || num(po.warehousingCost)) ? `<div class="section-box">
+        <div class="section-title">هزینه‌های جانبی (Landed Cost)</div>
+        ${num(po.freightCost) ? `<div class="totals-row"><span>حمل و نقل</span><span>${moneyPlain(po.freightCost)}</span></div>` : ''}
+        ${num(po.customsFee) ? `<div class="totals-row"><span>گمرک/عوارض</span><span>${moneyPlain(po.customsFee)}</span></div>` : ''}
+        ${num(po.insuranceCost) ? `<div class="totals-row"><span>بیمه</span><span>${moneyPlain(po.insuranceCost)}</span></div>` : ''}
+        ${num(po.warehousingCost) ? `<div class="totals-row"><span>انبارداری</span><span>${moneyPlain(po.warehousingCost)}</span></div>` : ''}
+    </div>` : ''}
+    ${poNeedsApproval(po) ? `<div class="section-box" style="border-color:var(--accent-amber);"><div class="section-title">⚠️ نیاز به تأیید مدیر</div><p class="txt-caption" style="margin-bottom:8px;">مبلغ این سفارش بالای سقف تعیین‌شده در تنظیمات است.</p><button class="calc-btn" onclick="approvePO('${po.id}')">✓ تأیید این سفارش</button></div>` : ''}
+    ${po.approvedBy ? `<p class="txt-caption">✓ تأیید شده توسط ${esc(po.approvedBy)} — ${fmtDate(po.approvedAt)}</p>` : ''}
+    ${attachmentsHtml(po, K.purchaseOrders, po.id)}
     <div class="action-grid">
         <button class="btn-action" onclick="openPOEditor('${po.id}')">✎ ویرایش / ثبت دریافت</button>
+        <button class="btn-action" onclick="shareSupplierStatus('${po.id}')">📤 اشتراک‌گذاری وضعیت با تأمین‌کننده</button>
         ${!po.linkedPurchaseId ? `<button class="calc-btn" onclick="convertPOToPurchase('${po.id}')">📥 تبدیل به فاکتور خرید</button>` : `<span class="badge badge-emerald" style="align-self:center;">✓ به فاکتور خرید تبدیل شد</span>`}
     </div>
     ${po.note ? `<p class="txt-body" style="margin-top:10px; color:var(--text-secondary);">${esc(po.note)}</p>` : ''}
@@ -5591,17 +5760,44 @@ window.openPODetail = openPODetail;
 function convertPOToPurchase(poId) {
     const po = dbRead(K.purchaseOrders).find(p => p.id === poId);
     if (!po) return;
+    if (poNeedsApproval(po)) { showToast('مبلغ این سفارش بالای سقف تعیین‌شده است و نیاز به تأیید مدیر دارد — ابتدا آن را تأیید کنید', 'error'); return; }
     const supplier = dbRead(K.suppliers).find(s => s.id === po.supplierId);
     if (!supplier) { showToast('تأمین‌کننده این سفارش یافت نشد', 'error'); return; }
-    const items = po.items.filter(it => num(it.receivedQty) > 0).map(it => ({ productId: '', name: it.name, qty: num(it.receivedQty), price: num(it.price) }));
+    const fxRate = (po.currency && po.currency !== 'تومان' && num(po.fxRate)) ? num(po.fxRate) : 1;
+    let items = po.items.filter(it => num(it.receivedQty) > 0).map(it => ({ productId: '', name: it.name, qty: num(it.receivedQty), price: num(it.price) * fxRate, batchNumber: it.batchNumber || '', expiryDate: it.expiryDate || '', qcStatus: it.qcStatus || '' }));
     if (!items.length) { showToast('هنوز هیچ مقداری از این سفارش دریافت نشده است', 'error'); return; }
+    // Landed cost: spread freight + customs + insurance + warehousing proportionally across units
+    // received, so each item's recorded price reflects its real total cost — not just the sticker price.
+    const landedExtras = num(po.freightCost) + num(po.customsFee) + num(po.insuranceCost) + num(po.warehousingCost);
+    const totalQty = items.reduce((s, it) => s + it.qty, 0);
+    if (landedExtras && totalQty) {
+        const perUnitExtra = landedExtras / totalQty;
+        items = items.map(it => Object.assign({}, it, { price: it.price + perUnitExtra }));
+    }
     const total = items.reduce((s, it) => s + it.qty * it.price, 0);
     const purchases = dbRead(K.purchases);
     const purchaseId = uid('pur');
-    const newPurchase = { id: purchaseId, number: (purchases.reduce((m, p) => Math.max(m, num(p.number)), 2000) + 1), date: todayISO(), supplier: supplier.name, supplierId: supplier.id, items, total, paidAmount: 0, status: 'unpaid', paymentMethod: 'cash', linkedPOId: po.id };
+    const newPurchase = {
+        id: purchaseId, number: (purchases.reduce((m, p) => Math.max(m, num(p.number)), 2000) + 1), date: todayISO(),
+        supplier: supplier.name, supplierId: supplier.id, items, total, paidAmount: 0, status: 'unpaid', paymentMethod: 'cash', linkedPOId: po.id,
+        landedCostBreakdown: landedExtras ? { freight: num(po.freightCost), customs: num(po.customsFee), insurance: num(po.insuranceCost), warehousing: num(po.warehousingCost) } : null,
+        originalCurrency: po.currency !== 'تومان' ? { currency: po.currency, fxRate } : null,
+        cottageNumber: po.cottageNumber || '', importDocNumber: po.importDocNumber || ''
+    };
     purchases.push(newPurchase);
     dbWrite(K.purchases, purchases);
     adjustStockByName(items, +1);
+    // Batch/expiry tracking: if a batch number or expiry date was recorded on receipt, log it as
+    // a trackable batch so the expiry dashboard and FEFO deduction on sale can use it later.
+    const batchable = items.filter(it => it.batchNumber || it.expiryDate);
+    if (batchable.length) {
+        const batches = dbRead(K.batches);
+        batchable.forEach(it => {
+            const product = dbRead(K.products).find(p => p.name === it.name);
+            batches.push({ id: uid('batch'), productId: product ? product.id : '', productName: it.name, batchNumber: it.batchNumber || '(بدون شماره)', expiryDate: it.expiryDate || '', qtyRemaining: it.qty, purchaseId, receivedDate: todayISO() });
+        });
+        dbWrite(K.batches, batches);
+    }
     const poList = dbRead(K.purchaseOrders);
     const idx = poList.findIndex(p => p.id === poId);
     poList[idx].linkedPurchaseId = purchaseId;
@@ -5775,11 +5971,855 @@ function renderSupplyChainHub() {
         <button class="btn-action" style="height:70px;" onclick="switchView('purchaseOrders')">📋<br>سفارش‌های خرید</button>
         <button class="btn-action" style="height:70px;" onclick="switchView('rfqs')">💬<br>استعلام قیمت (RFQ)</button>
         <button class="btn-action" style="height:70px;" onclick="switchView('blanketOrders')">📆<br>سفارش کلی/دوره‌ای</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('reorderSuggestions')">🔁<br>پیشنهاد سفارش خرید</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('warehouses')">🏬<br>انبارها و شعبه‌ها</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('wastage')">🗑️<br>ضایعات و کسری</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('backorders')">⏳<br>سفارش‌های معوق</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('abcAnalysis')">📊<br>تحلیل ABC کالاها</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('purchaseBudgets')">💵<br>بودجه‌بندی خرید</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('supplierContracts')">📄<br>قراردادها</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('warrantyClaims')">🛡️<br>گارانتی و ضمانت</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('purchaseCalendar')">🗓️<br>تقویم خرید فصلی</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('notifications')">🔔<br>اعلان‌ها و یادآوری‌ها</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('inventoryTurnover')">🔄<br>گردش کالا</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('demandForecast')">🔮<br>پیش‌بینی نیاز خرید</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('supplyChainKPI')">🎯<br>گزارش KPI کلی</button>
+        <button class="btn-action" style="height:70px;" onclick="switchView('batchTracking')">📅<br>بچ و تاریخ انقضا</button>
     </div>
-    <p class="txt-caption" style="margin-top:14px;">این ماژول در حال گسترش است — بخش‌های بیشتر (چند انباری، بارکد، ردیابی بچ، گزارش KPI کامل و ...) به‌تدریج اضافه می‌شوند.</p>
+    <p class="txt-caption" style="margin-top:14px;">تمام ۴۰ قابلیت این ماژول پیاده‌سازی شده‌اند، به‌جز دو مورد که واقعاً امکان‌پذیر نبودند: همگام‌سازی با فروشگاه آنلاین (چون فروشگاه آنلاینی به این برنامه متصل نیست) و پورتال زنده تأمین‌کننده (به‌جای آن، خلاصه وضعیت قابل اشتراک‌گذاری ساخته شده). ارسال اعلان پیامکی هم نیاز به یک حساب فعال در سرویس پیامکی شما دارد.</p>
     `;
 }
 VIEW_RENDERERS.supplyChainHub = renderSupplyChainHub;
+
+/* =============================================================================
+   Group B — Warehouse & Inventory
+   ============================================================================= */
+
+/* --- 11 & 12: Reorder point + safety-stock suggestion ------------------------ */
+function productAvgDailySales(productId, days) {
+    days = days || 60;
+    const since = new Date(); since.setDate(since.getDate() - days);
+    let qty = 0;
+    dbRead(K.invoices).forEach(inv => {
+        if (new Date(inv.date) < since) return;
+        inv.items.forEach(it => { if (it.productId === productId) qty += num(it.qty); });
+    });
+    return qty / days;
+}
+function renderReorderSuggestions() {
+    const products = dbRead(K.products);
+    const suggestions = products.map(p => {
+        const avgDaily = productAvgDailySales(p.id);
+        const leadTime = num(p.leadTimeDays) || 7;
+        const safetyStock = Math.ceil(avgDaily * leadTime * 0.5); // 50% buffer over lead-time demand as a simple safety margin
+        const reorderPoint = Math.max(num(p.minQty), Math.ceil(avgDaily * leadTime) + safetyStock);
+        const suggestedQty = Math.max(0, reorderPoint * 2 - num(p.qty)); // top back up to ~2x reorder point
+        return { p, avgDaily, leadTime, safetyStock, reorderPoint, suggestedQty, needsOrder: num(p.qty) <= reorderPoint };
+    }).filter(s => s.needsOrder).sort((a, b) => (b.reorderPoint - b.p.qty) - (a.reorderPoint - a.p.qty));
+    return `
+    ${viewHeader('زنجیره تأمین', 'پیشنهاد سفارش خرید', `${suggestions.length.toLocaleString(localeForDigits())} کالا نیاز به سفارش مجدد دارد`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <p class="txt-caption" style="margin-bottom:10px;">«نقطه سفارش مجدد» و «موجودی اطمینان» بر اساس میانگین فروش روزانه (۶۰ روز اخیر) و زمان تحویل تأمین‌کننده (Lead Time) هر کالا محاسبه می‌شود. زمان تحویل را از فرم ویرایش کالا تنظیم کنید (پیش‌فرض ۷ روز).</p>
+    ${suggestions.length ? suggestions.map(s => {
+        const lastPurchase = dbRead(K.purchases).filter(p => p.items.some(it => it.productId === s.p.id)).sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+        return `<div class="list-item">
+            <div class="list-item-row">
+                <div><div class="list-item-title">${esc(s.p.name)}</div><div class="list-item-sub">موجودی: ${num(s.p.qty).toLocaleString(localeForDigits())} · نقطه سفارش: ${s.reorderPoint.toLocaleString(localeForDigits())} · موجودی اطمینان: ${s.safetyStock.toLocaleString(localeForDigits())}</div></div>
+                <div class="badge badge-amber">سفارش ${s.suggestedQty.toLocaleString(localeForDigits())} ${esc(s.p.unit)}</div>
+            </div>
+            ${lastPurchase ? `<p class="txt-caption" style="margin-top:6px;">آخرین بار از «${esc(lastPurchase.supplier)}» با قیمت ${moneyPlain(lastPurchase.items.find(it => it.productId === s.p.id)?.price || 0)} خریداری شده.</p>` : ''}
+        </div>`;
+    }).join('') : `<div class="empty-state">در حال حاضر هیچ کالایی نیاز به سفارش مجدد ندارد. 👍</div>`}
+    `;
+}
+VIEW_RENDERERS.reorderSuggestions = renderReorderSuggestions;
+
+/* --- 13: Multi-warehouse (lite) ---------------------------------------------- */
+function renderWarehouses() {
+    const list = dbRead(K.warehouses);
+    return `
+    ${viewHeader('زنجیره تأمین', 'انبارها و شعبه‌ها', `${list.length.toLocaleString(localeForDigits())} انبار`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <p class="txt-caption" style="margin-bottom:10px;">با تعریف چند انبار، می‌توانید موجودی هر کالا را به تفکیک انبار وارد کنید و بین انبارها حواله انتقال بزنید. فروش و خرید همچنان روی موجودی کل هر کالا اثر می‌گذارد.</p>
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openWarehouseEditor()" title="انبار جدید"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(w => `<div class="list-item"><div class="list-item-row">
+        <div><div class="list-item-title">${esc(w.name)}</div><div class="list-item-sub">${esc(w.address || '-')}</div></div>
+        <div class="action-grid" style="grid-template-columns:repeat(2,1fr);"><button class="btn-action" onclick="openWarehouseEditor('${w.id}')">ویرایش</button><button class="btn-action" style="color:var(--accent-rose);" onclick="deleteWarehouse('${w.id}')">حذف</button></div>
+    </div></div>`).join('') : `<div class="empty-state">هنوز انباری تعریف نشده؛ با یک انبار پیش‌فرض («انبار اصلی») شروع کنید.</div>`}
+    ${list.length >= 2 ? `<button class="calc-btn" style="width:100%; margin-top:10px;" onclick="openStockTransfer()">↔ انتقال کالا بین انبارها</button>
+    <button class="btn-action" style="width:100%; margin-top:8px;" onclick="switchView('warehouseStockReport')">📊 گزارش موجودی به تفکیک انبار</button>` : ''}
+    `;
+}
+VIEW_RENDERERS.warehouses = renderWarehouses;
+function openWarehouseEditor(id) {
+    const w = id ? dbRead(K.warehouses).find(x => x.id === id) : null;
+    const html = `
+        <div class="input-group"><label>نام انبار/شعبه *</label><input type="text" id="wh_name" value="${esc(w ? w.name : '')}" placeholder="مثلاً: انبار اصلی"></div>
+        <div class="input-group"><label>آدرس</label><textarea id="wh_address">${esc(w ? w.address || '' : '')}</textarea></div>
+        <button class="calc-btn" onclick="saveWarehouse('${id || ''}')">${w ? 'ذخیره تغییرات' : 'ثبت انبار'}</button>
+    `;
+    openModal(w ? 'ویرایش انبار' : 'انبار جدید', html);
+}
+window.openWarehouseEditor = openWarehouseEditor;
+function saveWarehouse(id) {
+    const name = document.getElementById('wh_name').value.trim();
+    if (!name) { showToast('نام انبار الزامی است', 'error'); return; }
+    const list = dbRead(K.warehouses);
+    const data = { name, address: document.getElementById('wh_address').value.trim() };
+    if (id) { const idx = list.findIndex(w => w.id === id); if (idx > -1) list[idx] = Object.assign(list[idx], data); }
+    else list.push(Object.assign({ id: uid('wh') }, data));
+    dbWrite(K.warehouses, list);
+    autoBackupTick();
+    closeModal(); showToast('انبار ذخیره شد', 'success'); switchView('warehouses');
+}
+window.saveWarehouse = saveWarehouse;
+function deleteWarehouse(id) {
+    if (!confirmAction('حذف این انبار؟ موجودی ثبت‌شده برای آن به انبار پیش‌فرض بازنمی‌گردد.')) return;
+    dbWrite(K.warehouses, dbRead(K.warehouses).filter(w => w.id !== id));
+    const products = dbRead(K.products);
+    products.forEach(p => { if (p.stockByWarehouse) delete p.stockByWarehouse[id]; });
+    dbWrite(K.products, products);
+    autoBackupTick();
+    closeModal(); showToast('انبار حذف شد', 'success'); switchView('warehouses');
+}
+window.deleteWarehouse = deleteWarehouse;
+function openStockTransfer() {
+    const warehouses = dbRead(K.warehouses);
+    const products = dbRead(K.products);
+    if (warehouses.length < 2) { showToast('حداقل ۲ انبار لازم است', 'error'); return; }
+    const html = `
+        <div class="input-group"><label>کالا *</label>
+            <select id="tr_product">${products.map(p => `<option value="${p.id}">${esc(p.name)} (موجودی کل: ${num(p.qty).toLocaleString(localeForDigits())})</option>`).join('')}</select>
+        </div>
+        <div class="mini-form-grid">
+            <div class="input-group"><label>از انبار</label><select id="tr_from">${warehouses.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+            <div class="input-group"><label>به انبار</label><select id="tr_to">${warehouses.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
+        </div>
+        <div class="input-group"><label>تعداد *</label><input type="text" inputmode="numeric" id="tr_qty" placeholder="0"></div>
+        <button class="calc-btn" onclick="saveStockTransfer()">ثبت انتقال</button>
+    `;
+    openModal('انتقال کالا بین انبارها', html);
+}
+window.openStockTransfer = openStockTransfer;
+function saveStockTransfer() {
+    const productId = document.getElementById('tr_product').value;
+    const fromWh = document.getElementById('tr_from').value;
+    const toWh = document.getElementById('tr_to').value;
+    const qty = num(document.getElementById('tr_qty').value);
+    if (fromWh === toWh) { showToast('انبار مبدأ و مقصد نمی‌تواند یکی باشد', 'error'); return; }
+    if (!qty) { showToast('تعداد را وارد کنید', 'error'); return; }
+    const products = dbRead(K.products);
+    const p = products.find(x => x.id === productId);
+    if (!p) return;
+    p.stockByWarehouse = p.stockByWarehouse || {};
+    const fromQty = num(p.stockByWarehouse[fromWh]);
+    if (fromQty < qty) { showToast('موجودی انبار مبدأ کافی نیست', 'error'); return; }
+    p.stockByWarehouse[fromWh] = fromQty - qty;
+    p.stockByWarehouse[toWh] = num(p.stockByWarehouse[toWh]) + qty;
+    dbWrite(K.products, products);
+    autoBackupTick();
+    closeModal(); showToast('انتقال ثبت شد', 'success'); switchView('warehouses');
+}
+window.saveStockTransfer = saveStockTransfer;
+function renderWarehouseStockReport() {
+    const warehouses = dbRead(K.warehouses);
+    const products = dbRead(K.products);
+    return `
+    ${viewHeader('زنجیره تأمین', 'موجودی به تفکیک انبار', '', `<button class="nav-btn" onclick="switchView('warehouses')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <table class="report-table"><thead><tr><th>کالا</th>${warehouses.map(w => `<th>${esc(w.name)}</th>`).join('')}<th>بدون انبار مشخص</th><th>جمع کل</th></tr></thead>
+    <tbody>${products.map(p => {
+        const swh = p.stockByWarehouse || {};
+        const assigned = warehouses.reduce((s, w) => s + num(swh[w.id]), 0);
+        const unassigned = Math.max(0, num(p.qty) - assigned);
+        return `<tr><td class="text-cell">${esc(p.name)}</td>${warehouses.map(w => `<td>${num(swh[w.id] || 0).toLocaleString(localeForDigits())}</td>`).join('')}<td>${unassigned.toLocaleString(localeForDigits())}</td><td style="font-weight:800;">${num(p.qty).toLocaleString(localeForDigits())}</td></tr>`;
+    }).join('')}</tbody></table>
+    `;
+}
+VIEW_RENDERERS.warehouseStockReport = renderWarehouseStockReport;
+
+/* --- 14: SKU / Barcode + printable Code128 label ----------------------------- */
+function code128SvgPath(text) {
+    // Minimal Code128-B encoder — enough for alphanumeric SKUs/barcodes to be scanned by any
+    // standard barcode reader; renders directly as an SVG (no external assets/canvas needed).
+    const CODE128_CHARS = ' !"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~';
+    const PATTERNS = ['212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213', '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132', '221231', '213212', '223112', '312131', '311222', '321122', '321221', '312212', '322112', '322211', '212123', '212321', '232121', '111323', '131123', '131321', '112313', '132113', '132311', '211313', '231113', '231311', '112133', '112331', '132131', '113123', '113321', '133121', '313121', '211331', '231131', '213113', '213311', '213131', '311123', '311321', '331121', '312113', '312311', '332111', '314111', '221411', '431111', '111224', '111422', '121124', '121421', '141122', '141221', '112214', '112412', '122114', '122411', '142112', '142211', '241211', '221114', '413111', '241112', '134111', '111242', '121142', '121241', '114212', '124112', '124211', '411212', '421112', '421211', '212141', '214121', '412121', '111143', '111341', '131141', '114113', '114311', '411113', '411311', '113141', '114131', '311141', '411131', '211412', '211214', '211232', '2331112'];
+    let codes = [104]; // Start Code B
+    for (const ch of text) { const idx = CODE128_CHARS.indexOf(ch); codes.push(idx >= 0 ? idx : 0); }
+    let checksum = codes[0];
+    for (let i = 1; i < codes.length; i++) checksum += codes[i] * i;
+    codes.push(checksum % 103);
+    codes.push(106); // Stop
+    let bars = '';
+    codes.forEach(c => { bars += PATTERNS[c] || '212222'; });
+    let x = 0, path = ''; let black = true;
+    for (const ch of bars) {
+        const w = parseInt(ch, 10);
+        if (black) path += `M${x},0h${w}v60h-${w}z `;
+        x += w; black = !black;
+    }
+    return { path, width: x };
+}
+function barcodeLabelSvg(sku, name, price) {
+    const { path, width } = code128SvgPath(sku || '0000000000');
+    const scale = Math.min(3, 260 / width);
+    return `<svg viewBox="0 0 ${width * scale + 20} 100" xmlns="http://www.w3.org/2000/svg" style="background:#fff;">
+        <text x="${(width * scale + 20) / 2}" y="14" text-anchor="middle" font-size="11" font-family="Tahoma">${esc(name || '')}</text>
+        <g transform="translate(10,18) scale(${scale},0.6)">${path.replace(/fill="[^"]*"/g, '')}<path d="${path}" fill="#000"/></g>
+        <text x="${(width * scale + 20) / 2}" y="92" text-anchor="middle" font-size="12" font-family="monospace">${esc(sku || '')}</text>
+        ${price ? `<text x="${(width * scale + 20) / 2}" y="100" text-anchor="middle" font-size="10" font-family="Tahoma">${moneyPlain(price)} تومان</text>` : ''}
+    </svg>`;
+}
+/* Camera barcode scanning — uses the native BarcodeDetector API (supported in Chrome/Edge on
+   Android and recent desktop Chromium). Where it isn't available, we say so plainly rather than
+   pretending to scan; manual code entry always still works as the fallback. */
+let _scannerStream = null;
+async function openBarcodeScanner(onDetected) {
+    if (!('BarcodeDetector' in window)) {
+        showToast('این مرورگر از اسکن بارکد با دوربین پشتیبانی نمی‌کند (Chrome روی اندروید را امتحان کنید)؛ کد را دستی وارد کنید', 'error');
+        return;
+    }
+    window._onBarcodeDetected = onDetected;
+    const html = `
+        <div style="position:relative; border-radius:12px; overflow:hidden; background:#000;">
+            <video id="scannerVideo" style="width:100%; display:block;" autoplay muted playsinline></video>
+            <div style="position:absolute; inset:0; border:3px solid rgba(255,255,255,0.4); pointer-events:none; margin:15%;"></div>
+        </div>
+        <p class="txt-caption" style="margin-top:8px;">دوربین را رو به بارکد بگیرید — به‌محض تشخیص، خودکار ثبت می‌شود.</p>
+    `;
+    openModal('اسکن بارکد', html);
+    try {
+        _scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const video = document.getElementById('scannerVideo');
+        video.srcObject = _scannerStream;
+        const detector = new window.BarcodeDetector({ formats: ['code_128', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code'] });
+        const loop = async () => {
+            if (!document.getElementById('scannerVideo')) { stopBarcodeScanner(); return; } // modal was closed
+            try {
+                const codes = await detector.detect(video);
+                if (codes.length) { const value = codes[0].rawValue; stopBarcodeScanner(); closeModal(); if (window._onBarcodeDetected) window._onBarcodeDetected(value); return; }
+            } catch (e) { /* transient decode errors are normal, keep looping */ }
+            requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+    } catch (e) {
+        closeModal();
+        showToast('دسترسی به دوربین داده نشد', 'error');
+    }
+}
+window.openBarcodeScanner = openBarcodeScanner;
+function stopBarcodeScanner() {
+    if (_scannerStream) { _scannerStream.getTracks().forEach(t => t.stop()); _scannerStream = null; }
+}
+window.stopBarcodeScanner = stopBarcodeScanner;
+function scanBarcodeIntoField(inputId) {
+    openBarcodeScanner((code) => {
+        const el = document.getElementById(inputId);
+        if (el) { el.value = code; el.dispatchEvent(new Event('input')); }
+        showToast('بارکد اسکن شد: ' + code, 'success');
+    });
+}
+window.scanBarcodeIntoField = scanBarcodeIntoField;
+function scanBarcodeToFindProduct() {
+    openBarcodeScanner((code) => {
+        const p = findProductByCode(code);
+        if (p) { showToast(`کالای پیدا شده: ${p.name}`, 'success'); openProductEditor(p.id); }
+        else showToast('کالایی با این بارکد یافت نشد', 'error');
+    });
+}
+window.scanBarcodeToFindProduct = scanBarcodeToFindProduct;
+
+function printBarcodeLabel(productId) {
+    const p = dbRead(K.products).find(x => x.id === productId);
+    if (!p) return;
+    if (!p.sku && !p.barcode) { showToast('ابتدا کد کالا (SKU) یا بارکد را در فرم کالا وارد کنید', 'error'); return; }
+    const code = p.barcode || p.sku;
+    const html = `<div style="text-align:center; padding:20px;">${barcodeLabelSvg(code, p.name, p.sellPrice)}</div>${printFooterButton()}`;
+    openModal('برچسب بارکد — ' + p.name, html);
+}
+window.printBarcodeLabel = printBarcodeLabel;
+function findProductByCode(code) {
+    return dbRead(K.products).find(p => p.sku === code || p.barcode === code);
+}
+
+/* --- 18: Wastage / shrinkage log --------------------------------------------- */
+function renderWastage() {
+    const list = dbRead(K.wastage).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    const totalCost = list.reduce((s, w) => s + num(w.cost), 0);
+    return `
+    ${viewHeader('زنجیره تأمین', 'ضایعات و کسری انبار', `${list.length.toLocaleString(localeForDigits())} مورد · جمع هزینه: ${money(totalCost)}`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openWastageEditor()" title="ثبت ضایعات"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(w => `<div class="list-item"><div class="list-item-row">
+        <div><div class="list-item-title">${esc(w.name)}</div><div class="list-item-sub">${fmtDate(w.date)} · ${esc(w.reason || '-')} · ${num(w.qty).toLocaleString(localeForDigits())} عدد</div></div>
+        <div class="list-item-title" style="color:var(--accent-rose);">${moneyPlain(w.cost)}</div>
+    </div></div>`).join('') : `<div class="empty-state">هنوز ضایعاتی ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.wastage = renderWastage;
+function openWastageEditor() {
+    const products = dbRead(K.products);
+    const html = `
+        <div class="input-group"><label>کالا *</label>
+            <select id="wa_product">${products.map(p => `<option value="${p.id}">${esc(p.name)} (موجودی: ${num(p.qty).toLocaleString(localeForDigits())})</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>تعداد *</label><input type="text" inputmode="numeric" id="wa_qty" value="1"></div>
+        ${jalaliDateField('wa_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>دلیل</label>
+            <select id="wa_reason"><option value="خرابی">خرابی</option><option value="گم‌شدن">گم‌شدن</option><option value="تاریخ گذشته">تاریخ گذشته</option><option value="سایر">سایر</option></select>
+        </div>
+        <button class="calc-btn" onclick="saveWastage()">ثبت ضایعات</button>
+    `;
+    openModal('ثبت ضایعات/کسری', html);
+}
+window.openWastageEditor = openWastageEditor;
+function saveWastage() {
+    const productId = document.getElementById('wa_product').value;
+    const qty = num(document.getElementById('wa_qty').value);
+    const products = dbRead(K.products);
+    const p = products.find(x => x.id === productId);
+    if (!p || !qty) { showToast('کالا و تعداد را وارد کنید', 'error'); return; }
+    const cost = qty * num(p.buyPrice);
+    p.qty = Math.max(0, num(p.qty) - qty);
+    dbWrite(K.products, products);
+    const list = dbRead(K.wastage);
+    list.push({ id: uid('waste'), productId, name: p.name, qty, cost, date: getJalaliInputISO('wa_date') || todayISO(), reason: document.getElementById('wa_reason').value });
+    dbWrite(K.wastage, list);
+    autoBackupTick();
+    closeModal(); showToast('ضایعات ثبت شد و از موجودی کسر گردید', 'success'); switchView('wastage');
+}
+window.saveWastage = saveWastage;
+
+/* --- 19: Backorders (سفارش معوق) --------------------------------------------- */
+function renderBackorders() {
+    const list = dbRead(K.backorders).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    return `
+    ${viewHeader('زنجیره تأمین', 'سفارش‌های معوق مشتری', `${list.filter(b => !b.fulfilled).length.toLocaleString(localeForDigits())} در انتظار`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openBackorderEditor()" title="ثبت سفارش معوق"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(b => `<div class="list-item">
+        <div class="list-item-row"><div><div class="list-item-title">${esc(b.productName)} — ${esc(b.customerName)}</div><div class="list-item-sub">${fmtDate(b.date)} · ${num(b.qty).toLocaleString(localeForDigits())} عدد</div></div>
+        ${b.fulfilled ? `<span class="badge badge-emerald">تحویل داده شد</span>` : `<button class="btn-action" onclick="fulfillBackorder('${b.id}')">✓ تحویل داده شد</button>`}</div>
+    </div>`).join('') : `<div class="empty-state">سفارش معوقی ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.backorders = renderBackorders;
+function openBackorderEditor() {
+    const customers = dbRead(K.customers);
+    const products = dbRead(K.products);
+    const html = `
+        <div class="input-group"><label>مشتری</label>
+            <select id="bk_customer"><option value="">مشتری نقدی/متفرقه</option>${customers.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>کالا *</label>
+            <select id="bk_product">${products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>تعداد *</label><input type="text" inputmode="numeric" id="bk_qty" value="1"></div>
+        ${jalaliDateField('bk_date', todayISO(), 'تاریخ')}
+        <div class="input-group"><label>یادداشت</label><input type="text" id="bk_note"></div>
+        <button class="calc-btn" onclick="saveBackorder()">ثبت سفارش معوق</button>
+    `;
+    openModal('سفارش معوق جدید', html);
+}
+window.openBackorderEditor = openBackorderEditor;
+function saveBackorder() {
+    const productId = document.getElementById('bk_product').value;
+    const qty = num(document.getElementById('bk_qty').value);
+    if (!qty) { showToast('تعداد را وارد کنید', 'error'); return; }
+    const product = dbRead(K.products).find(p => p.id === productId);
+    const customerId = document.getElementById('bk_customer').value || null;
+    const customer = customerId ? dbRead(K.customers).find(c => c.id === customerId) : null;
+    const list = dbRead(K.backorders);
+    list.push({ id: uid('bko'), customerId, customerName: customer ? customer.name : 'مشتری نقدی/متفرقه', productId, productName: product ? product.name : '-', qty, date: getJalaliInputISO('bk_date') || todayISO(), note: document.getElementById('bk_note').value.trim(), fulfilled: false });
+    dbWrite(K.backorders, list);
+    autoBackupTick();
+    closeModal(); showToast('سفارش معوق ثبت شد', 'success'); switchView('backorders');
+}
+window.saveBackorder = saveBackorder;
+function fulfillBackorder(id) {
+    const list = dbRead(K.backorders);
+    const b = list.find(x => x.id === id);
+    if (b) b.fulfilled = true;
+    dbWrite(K.backorders, list);
+    autoBackupTick();
+    showToast('سفارش معوق تحویل‌شده علامت خورد', 'success');
+    rerenderIfActive('backorders');
+}
+window.fulfillBackorder = fulfillBackorder;
+
+/* --- 20: ABC analysis --------------------------------------------------------- */
+function renderABCAnalysis() {
+    const products = dbRead(K.products);
+    const revenueByProduct = {};
+    dbRead(K.invoices).forEach(inv => inv.items.forEach(it => { if (it.productId) revenueByProduct[it.productId] = (revenueByProduct[it.productId] || 0) + num(it.qty) * num(it.price); }));
+    const ranked = products.map(p => ({ p, revenue: revenueByProduct[p.id] || 0 })).sort((a, b) => b.revenue - a.revenue);
+    const totalRevenue = ranked.reduce((s, r) => s + r.revenue, 0) || 1;
+    let cumulative = 0;
+    const classified = ranked.map(r => {
+        cumulative += r.revenue;
+        const cumPct = cumulative / totalRevenue * 100;
+        const cls = cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C';
+        return Object.assign(r, { cumPct, cls });
+    });
+    const counts = { A: classified.filter(c => c.cls === 'A').length, B: classified.filter(c => c.cls === 'B').length, C: classified.filter(c => c.cls === 'C').length };
+    return `
+    ${viewHeader('زنجیره تأمین', 'تحلیل ABC کالاها', 'دسته‌بندی کالاها بر اساس سهم از گردش مالی (اصل پارتو)', `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val" style="color:var(--accent-emerald);">${counts.A.toLocaleString(localeForDigits())}</div><div class="stat-label">گروه A (پرارزش — تا ۸۰٪ فروش)</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:var(--accent-amber);">${counts.B.toLocaleString(localeForDigits())}</div><div class="stat-label">گروه B (متوسط — تا ۹۵٪)</div></div>
+        <div class="stat-card"><div class="stat-val" style="color:var(--text-secondary);">${counts.C.toLocaleString(localeForDigits())}</div><div class="stat-label">گروه C (کم‌ارزش — باقی‌مانده)</div></div>
+    </div>
+    <table class="report-table"><thead><tr><th>کالا</th><th>گردش مالی</th><th>سهم تجمعی</th><th>گروه</th></tr></thead>
+    <tbody>${classified.map(c => `<tr><td class="text-cell">${esc(c.p.name)}</td><td>${moneyPlain(c.revenue)}</td><td>${c.cumPct.toFixed(1)}٪</td><td><span class="badge ${c.cls === 'A' ? 'badge-emerald' : c.cls === 'B' ? 'badge-amber' : 'badge-cyan'}">${c.cls}</span></td></tr>`).join('')}</tbody></table>
+    `;
+}
+VIEW_RENDERERS.abcAnalysis = renderABCAnalysis;
+
+/* =============================================================================
+   Group C — Logistics, Cost & Finance
+   (items 21-24: shipment tracking, landed cost, multi-currency, customs docs
+   were added directly into the Purchase Order module above, since a PO is the
+   natural place to capture them. What follows covers items 25-30.)
+   ============================================================================= */
+
+/* --- 25: Purchase budgeting (بودجه‌بندی خرید) --------------------------------- */
+function renderPurchaseBudgets() {
+    const budgets = dbRead(K.purchaseBudgets);
+    const purchases = dbRead(K.purchases);
+    const products = dbRead(K.products);
+    const actualByCategory = {};
+    purchases.forEach(p => p.items.forEach(it => {
+        const prod = products.find(x => x.id === it.productId || x.name === it.name);
+        const cat = prod ? (prod.category || 'بدون دسته') : 'بدون دسته';
+        const jy = isoToJalaliParts(p.date).jy, jm = isoToJalaliParts(p.date).jm;
+        const key = `${cat}|${jy}-${String(jm).padStart(2, '0')}`;
+        actualByCategory[key] = (actualByCategory[key] || 0) + num(it.qty) * num(it.price);
+    }));
+    return `
+    ${viewHeader('زنجیره تأمین', 'بودجه‌بندی خرید', `${budgets.length.toLocaleString(localeForDigits())} بودجه تعریف‌شده`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openBudgetEditor()" title="بودجه جدید"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${budgets.length ? budgets.map(b => {
+        const key = `${b.category}|${b.period}`;
+        const actual = actualByCategory[key] || 0;
+        const pct = b.amount ? Math.round(actual / b.amount * 100) : 0;
+        const over = actual > b.amount;
+        return `<div class="list-item">
+            <div class="list-item-row"><div><div class="list-item-title">${esc(b.category)}</div><div class="list-item-sub">${esc(b.period)} · بودجه: ${moneyPlain(b.amount)}</div></div>
+            <div class="badge ${over ? 'badge-rose' : 'badge-emerald'}">${pct}٪ مصرف‌شده</div></div>
+            <p class="txt-caption" style="margin-top:6px;">خرید واقعی: ${moneyPlain(actual)}${over ? ' — ⚠️ از بودجه عبور کرده' : ''}</p>
+        </div>`;
+    }).join('') : `<div class="empty-state">هنوز بودجه‌ای تعریف نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.purchaseBudgets = renderPurchaseBudgets;
+function openBudgetEditor() {
+    const cats = Array.from(new Set(dbRead(K.products).map(p => p.category || 'بدون دسته')));
+    const html = `
+        <div class="input-group"><label>دسته‌بندی کالا *</label>
+            <select id="bg_category">${cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>دوره (سال-ماه شمسی) *</label><input type="text" id="bg_period" placeholder="مثلاً 1405-06"></div>
+        <div class="input-group"><label>مبلغ بودجه *</label><input type="text" inputmode="numeric" id="bg_amount" placeholder="0"></div>
+        <button class="calc-btn" onclick="saveBudget()">ثبت بودجه</button>
+    `;
+    openModal('بودجه خرید جدید', html);
+}
+window.openBudgetEditor = openBudgetEditor;
+function saveBudget() {
+    const category = document.getElementById('bg_category').value;
+    const period = document.getElementById('bg_period').value.trim();
+    const amount = num(document.getElementById('bg_amount').value);
+    if (!period || !amount) { showToast('دوره و مبلغ را وارد کنید', 'error'); return; }
+    const list = dbRead(K.purchaseBudgets);
+    list.push({ id: uid('bud'), category, period, amount });
+    dbWrite(K.purchaseBudgets, list);
+    autoBackupTick();
+    closeModal(); showToast('بودجه ثبت شد', 'success'); switchView('purchaseBudgets');
+}
+window.saveBudget = saveBudget;
+
+/* --- 26: Contracts & commercial terms (قراردادها) ----------------------------- */
+function renderSupplierContracts() {
+    const list = dbRead(K.supplierContracts).slice().sort((a, b) => new Date(a.endDate) - new Date(b.endDate));
+    return `
+    ${viewHeader('زنجیره تأمین', 'قراردادها و شرایط تجاری', `${list.length.toLocaleString(localeForDigits())} قرارداد`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openContractEditor()" title="قرارداد جدید"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(c => {
+        const supplier = dbRead(K.suppliers).find(s => s.id === c.supplierId);
+        const daysLeft = Math.round((new Date(c.endDate) - new Date()) / 86400000);
+        const expiringSoon = daysLeft >= 0 && daysLeft <= 30;
+        const expired = daysLeft < 0;
+        return `<div class="list-item"><div class="list-item-row">
+            <div><div class="list-item-title">${esc(supplier ? supplier.name : '-')}</div><div class="list-item-sub">${esc(c.terms || '-')} · تا ${fmtDate(c.endDate)}</div></div>
+            ${expired ? `<span class="badge badge-rose">منقضی‌شده</span>` : expiringSoon ? `<span class="badge badge-amber">${daysLeft.toLocaleString(localeForDigits())} روز مانده</span>` : `<span class="badge badge-emerald">فعال</span>`}
+        </div></div>`;
+    }).join('') : `<div class="empty-state">هنوز قراردادی ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.supplierContracts = renderSupplierContracts;
+function openContractEditor() {
+    const suppliers = dbRead(K.suppliers);
+    const html = `
+        <div class="input-group"><label>تأمین‌کننده *</label>
+            <select id="ct_supplier">${suppliers.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>شرایط قرارداد</label><textarea id="ct_terms" placeholder="مثلاً: تخفیف ۵٪ بالای ۱۰۰ عدد، مهلت پرداخت ۳۰ روزه"></textarea></div>
+        <div class="mini-form-grid">
+            ${jalaliDateField('ct_start', todayISO(), 'شروع قرارداد')}
+            ${jalaliDateField('ct_end', '', 'پایان/تاریخ تمدید')}
+        </div>
+        <button class="calc-btn" onclick="saveContract()">ثبت قرارداد</button>
+    `;
+    openModal('قرارداد جدید', html);
+}
+window.openContractEditor = openContractEditor;
+function saveContract() {
+    const supplierId = document.getElementById('ct_supplier').value;
+    const endDate = getJalaliInputISO('ct_end');
+    if (!supplierId || !endDate) { showToast('تأمین‌کننده و تاریخ پایان الزامی است', 'error'); return; }
+    const list = dbRead(K.supplierContracts);
+    list.push({ id: uid('cnt'), supplierId, terms: document.getElementById('ct_terms').value.trim(), startDate: getJalaliInputISO('ct_start') || todayISO(), endDate });
+    dbWrite(K.supplierContracts, list);
+    autoBackupTick();
+    closeModal(); showToast('قرارداد ثبت شد', 'success'); switchView('supplierContracts');
+}
+window.saveContract = saveContract;
+
+/* --- 28: Warranty management (ضمانت/گارانتی) ---------------------------------- */
+function renderWarrantyClaims() {
+    const list = dbRead(K.warrantyClaims).slice().sort((a, b) => new Date(b.date) - new Date(a.date));
+    return `
+    ${viewHeader('زنجیره تأمین', 'گارانتی و ضمانت کالا', `${list.filter(w => !w.resolved).length.toLocaleString(localeForDigits())} درخواست باز`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="search-bar"><div></div>
+        <button class="fab-add" onclick="openWarrantyClaimEditor()" title="درخواست گارانتی جدید"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+    </div>
+    ${list.length ? list.map(w => `<div class="list-item"><div class="list-item-row">
+        <div><div class="list-item-title">${esc(w.itemName)}</div><div class="list-item-sub">${fmtDate(w.date)} · ${esc(w.issue || '-')}${w.cost ? ' · هزینه: ' + moneyPlain(w.cost) : ''}</div></div>
+        ${w.resolved ? `<span class="badge badge-emerald">حل‌شده</span>` : `<button class="btn-action" onclick="resolveWarrantyClaim('${w.id}')">✓ حل شد</button>`}
+    </div></div>`).join('') : `<div class="empty-state">درخواست گارانتی‌ای ثبت نشده است.</div>`}
+    `;
+}
+VIEW_RENDERERS.warrantyClaims = renderWarrantyClaims;
+function openWarrantyClaimEditor() {
+    const products = dbRead(K.products);
+    const html = `
+        <div class="input-group"><label>کالا *</label>
+            <select id="wc_product">${products.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group"><label>مدت گارانتی (ماه)</label><input type="text" inputmode="numeric" id="wc_months" placeholder="مثلاً 12"></div>
+        <div class="input-group"><label>شرح مشکل *</label><input type="text" id="wc_issue"></div>
+        ${jalaliDateField('wc_date', todayISO(), 'تاریخ درخواست')}
+        <div class="input-group"><label>هزینه تعمیر/تعویض (اختیاری)</label><input type="text" inputmode="numeric" id="wc_cost" placeholder="0"></div>
+        <button class="calc-btn" onclick="saveWarrantyClaim()">ثبت درخواست</button>
+    `;
+    openModal('درخواست گارانتی جدید', html);
+}
+window.openWarrantyClaimEditor = openWarrantyClaimEditor;
+function saveWarrantyClaim() {
+    const productId = document.getElementById('wc_product').value;
+    const issue = document.getElementById('wc_issue').value.trim();
+    if (!issue) { showToast('شرح مشکل را وارد کنید', 'error'); return; }
+    const product = dbRead(K.products).find(p => p.id === productId);
+    const list = dbRead(K.warrantyClaims);
+    list.push({ id: uid('war'), productId, itemName: product ? product.name : '-', warrantyMonths: num(document.getElementById('wc_months').value), issue, date: getJalaliInputISO('wc_date') || todayISO(), cost: num(document.getElementById('wc_cost').value), resolved: false });
+    dbWrite(K.warrantyClaims, list);
+    autoBackupTick();
+    closeModal(); showToast('درخواست گارانتی ثبت شد', 'success'); switchView('warrantyClaims');
+}
+window.saveWarrantyClaim = saveWarrantyClaim;
+function resolveWarrantyClaim(id) {
+    const list = dbRead(K.warrantyClaims);
+    const w = list.find(x => x.id === id);
+    if (w) w.resolved = true;
+    dbWrite(K.warrantyClaims, list);
+    autoBackupTick();
+    showToast('درخواست گارانتی حل‌شده علامت خورد', 'success');
+    rerenderIfActive('warrantyClaims');
+}
+window.resolveWarrantyClaim = resolveWarrantyClaim;
+
+/* --- 29: Seasonal purchase calendar (تقویم خرید فصلی) — lightweight note-based reminder --- */
+function renderPurchaseCalendar() {
+    const s = getSettings();
+    const notes = s.purchaseCalendarNotes || {};
+    return `
+    ${viewHeader('زنجیره تأمین', 'تقویم خرید فصلی', 'یادداشت الگوی فصلی تقاضا برای هر ماه شمسی، برای برنامه‌ریزی خرید از قبل', `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    ${FA_MONTHS.map((m, idx) => `
+        <div class="input-group"><label>${m}</label><textarea id="pc_month_${idx}" placeholder="مثلاً: افزایش تقاضای پوشاک زمستانی، سفارش از شهریور">${esc(notes[idx] || '')}</textarea></div>
+    `).join('')}
+    <button class="calc-btn" onclick="savePurchaseCalendar()">ذخیره تقویم خرید</button>
+    `;
+}
+VIEW_RENDERERS.purchaseCalendar = renderPurchaseCalendar;
+function savePurchaseCalendar() {
+    const notes = {};
+    FA_MONTHS.forEach((m, idx) => { const v = document.getElementById('pc_month_' + idx).value.trim(); if (v) notes[idx] = v; });
+    saveSettings({ purchaseCalendarNotes: notes });
+    showToast('تقویم خرید ذخیره شد', 'success');
+    switchView('supplyChainHub');
+}
+window.savePurchaseCalendar = savePurchaseCalendar;
+
+/* =============================================================================
+   Group D — Workflow, Notifications & Reports
+   ============================================================================= */
+
+/* --- 31: Approval workflow (lightweight — no multi-user login exists in this
+   app, so this is a manual approval *gate*, not real role-based access
+   control): above a configurable amount, a PO cannot be converted to a
+   purchase until someone records their name as the approver. --------------- */
+function poNeedsApproval(po) {
+    const threshold = num(getSettings().poApprovalThreshold);
+    if (!threshold) return false;
+    const total = po.items.reduce((s, it) => s + num(it.qty) * num(it.price), 0);
+    return total >= threshold && !po.approvedBy;
+}
+function approvePO(poId) {
+    const name = prompt('نام تأییدکننده را وارد کنید:');
+    if (!name) return;
+    const list = dbRead(K.purchaseOrders);
+    const po = list.find(p => p.id === poId);
+    if (po) { po.approvedBy = name; po.approvedAt = todayISO(); }
+    dbWrite(K.purchaseOrders, list);
+    autoBackupTick();
+    showToast('سفارش تأیید شد', 'success');
+    openPODetail(poId);
+}
+window.approvePO = approvePO;
+
+/* --- 33: Supplier-facing status summary (شبه‌پورتال) -------------------------
+   A true live "supplier logs in and sees their own order" portal needs public
+   cloud access to your data, which this local-first app doesn't have set up.
+   As an honest, working alternative: this generates a clean, shareable
+   read-only summary (for print, or to copy/send via WhatsApp/Telegram) that
+   you send the supplier yourself — same information, no extra infrastructure
+   required. */
+function shareSupplierStatus(poId) {
+    const po = dbRead(K.purchaseOrders).find(p => p.id === poId);
+    if (!po) return;
+    const supplier = dbRead(K.suppliers).find(s => s.id === po.supplierId);
+    const lines = [
+        `سفارش خرید #${po.number} — ${supplier ? supplier.name : ''}`,
+        `تاریخ: ${fmtDate(po.date)} | وضعیت: ${poStatusLabel(po.status)}`,
+        ...po.items.map(it => `• ${it.name}: سفارش ${num(it.qty)} — دریافت‌شده ${num(it.receivedQty)}`),
+        po.expectedDeliveryDate ? `تحویل موردانتظار: ${fmtDate(po.expectedDeliveryDate)}` : '',
+        po.trackingNumber ? `شماره پیگیری: ${po.trackingNumber}` : ''
+    ].filter(Boolean);
+    const text = lines.join('\n');
+    if (navigator.share) {
+        navigator.share({ title: 'وضعیت سفارش خرید', text }).catch(() => {});
+    } else {
+        navigator.clipboard.writeText(text).then(() => showToast('خلاصه وضعیت سفارش در کلیپ‌بورد کپی شد', 'success')).catch(() => showToast(text, 'success'));
+    }
+}
+window.shareSupplierStatus = shareSupplierStatus;
+
+/* --- 34: Notes & file (photo) attachments ------------------------------------- */
+function attachPhotoToRecord(store, id, inputEl) {
+    const file = inputEl.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) { showToast('حجم عکس زیاد است؛ عکس کوچک‌تر انتخاب کنید (حداکثر ۱.۵ مگابایت)', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+        const list = dbRead(store);
+        const rec = list.find(x => x.id === id);
+        if (!rec) return;
+        rec.attachments = rec.attachments || [];
+        rec.attachments.push({ id: uid('att'), name: file.name, dataUrl: reader.result, date: todayISO() });
+        dbWrite(store, list);
+        autoBackupTick();
+        showToast('پیوست اضافه شد', 'success');
+        if (store === K.suppliers) openSupplierDetail(id); else if (store === K.purchaseOrders) openPODetail(id);
+    };
+    reader.readAsDataURL(file);
+}
+window.attachPhotoToRecord = attachPhotoToRecord;
+function attachmentsHtml(rec, store, id) {
+    const atts = rec.attachments || [];
+    return `<div class="section-box">
+        <div class="section-title">پیوست‌ها (قرارداد، فاکتور اسکن‌شده، عکس کالا و ...)</div>
+        ${atts.length ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">${atts.map(a => `<img src="${a.dataUrl}" style="width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--border-color);" title="${esc(a.name)}">`).join('')}</div>` : ''}
+        <input type="file" accept="image/*" onchange="attachPhotoToRecord(K.${store === K.suppliers ? 'suppliers' : 'purchaseOrders'}, '${id}', this)">
+    </div>`;
+}
+
+/* --- 35: Consolidated notifications/reminders panel --------------------------- */
+function collectNotifications() {
+    const items = [];
+    const now = new Date();
+    // low stock / reorder point
+    dbRead(K.products).forEach(p => { if (num(p.qty) <= num(p.minQty)) items.push({ type: 'stock', urgent: num(p.qty) === 0, text: `موجودی «${p.name}» به حداقل رسیده (${num(p.qty)} باقی‌مانده)`, view: 'products' }); });
+    // checks due soon
+    dbRead(K.checks).filter(c => c.status === 'pending').forEach(c => {
+        const days = Math.round((new Date(c.dueDate) - now) / 86400000);
+        if (days <= 7) items.push({ type: 'check', urgent: days < 0, text: `چک ${c.direction === 'pay' ? 'پرداختی' : 'دریافتی'} «${c.who}» ${days < 0 ? 'سررسید گذشته' : 'تا ' + days + ' روز دیگر سررسید'} — ${moneyPlain(c.amount)}`, view: 'checks' });
+    });
+    // supplier debts (payment due — approximate: any outstanding balance)
+    dbRead(K.suppliers).forEach(s => { const bal = supplierBalance(s.id); if (bal > 0) items.push({ type: 'supplierDebt', urgent: false, text: `بدهی به «${s.name}»: ${moneyPlain(bal)}`, view: 'suppliers' }); });
+    // contract expiring
+    dbRead(K.supplierContracts).forEach(c => {
+        const days = Math.round((new Date(c.endDate) - now) / 86400000);
+        if (days <= 30) { const s = dbRead(K.suppliers).find(x => x.id === c.supplierId); items.push({ type: 'contract', urgent: days < 0, text: `قرارداد «${s ? s.name : ''}» ${days < 0 ? 'منقضی شده' : 'تا ' + days + ' روز دیگر منقضی می‌شود'}`, view: 'supplierContracts' }); }
+    });
+    // delayed PO deliveries
+    dbRead(K.purchaseOrders).filter(po => !['closed', 'received'].includes(po.status) && po.expectedDeliveryDate).forEach(po => {
+        if (new Date(po.expectedDeliveryDate) < now) { const s = dbRead(K.suppliers).find(x => x.id === po.supplierId); items.push({ type: 'delay', urgent: true, text: `سفارش #${po.number} از «${s ? s.name : ''}» از تاریخ موردانتظار عقب افتاده`, view: 'purchaseOrders' }); }
+    });
+    return items;
+}
+function renderNotifications() {
+    const items = collectNotifications();
+    return `
+    ${viewHeader('زنجیره تأمین', 'اعلان‌ها و یادآوری‌ها', `${items.length.toLocaleString(localeForDigits())} مورد`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    ${items.length ? items.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0)).map(n => `
+        <div class="list-item" style="cursor:pointer;" onclick="switchView('${n.view}')">
+            <div class="list-item-row"><div class="list-item-title" style="color:${n.urgent ? 'var(--accent-rose)' : 'var(--text-main)'};">${n.urgent ? '🔴' : '🟡'} ${esc(n.text)}</div></div>
+        </div>`).join('') : `<div class="empty-state">فعلاً اعلان مهمی وجود ندارد. 👍</div>`}
+    <div class="section-box">
+        <div class="section-title">ارسال اعلان به تلگرام</div>
+        <p class="txt-caption" style="margin-bottom:10px;">با ساخت یک ربات تلگرام (از @BotFather) و وارد کردن توکن + شناسه چت خودتان، می‌توانید همین اعلان‌ها را روی گوشی‌تان هم دریافت کنید.</p>
+        <div class="input-group"><label>توکن ربات تلگرام</label><input type="text" id="tg_token" value="${esc(getSettings().telegramBotToken || '')}" placeholder="123456:ABC-..."></div>
+        <div class="input-group"><label>شناسه چت (Chat ID)</label><input type="text" id="tg_chatid" value="${esc(getSettings().telegramChatId || '')}" placeholder="مثلاً 123456789"></div>
+        <div class="action-grid">
+            <button class="btn-action" onclick="saveTelegramSettings()">ذخیره تنظیمات</button>
+            <button class="calc-btn" onclick="sendNotificationsToTelegram()">📨 ارسال اعلان‌ها الان</button>
+        </div>
+        <p class="txt-caption" style="margin-top:10px;">برای پیامک (SMS) نیاز به یک حساب فعال در یک سرویس ارسال پیامک (مثل کاوه‌نگار یا ملی‌پیامک) دارید؛ اگر می‌خواهید این قابلیت هم وصل شود، اطلاعات API همان سرویس (آدرس API و کلید) را در اختیارم بگذارید تا دقیقاً برایتان وصل کنم.</p>
+    </div>
+    `;
+}
+VIEW_RENDERERS.notifications = renderNotifications;
+function saveTelegramSettings() {
+    saveSettings({ telegramBotToken: document.getElementById('tg_token').value.trim(), telegramChatId: document.getElementById('tg_chatid').value.trim() });
+    showToast('تنظیمات تلگرام ذخیره شد', 'success');
+}
+window.saveTelegramSettings = saveTelegramSettings;
+async function sendNotificationsToTelegram() {
+    const s = getSettings();
+    const token = s.telegramBotToken, chatId = s.telegramChatId;
+    if (!token || !chatId) { showToast('ابتدا توکن و شناسه چت را ذخیره کنید', 'error'); return; }
+    const items = collectNotifications();
+    if (!items.length) { showToast('اعلان مهمی برای ارسال وجود ندارد', 'success'); return; }
+    const text = '🔔 اعلان‌های حسابداری پلاس\n\n' + items.map(n => (n.urgent ? '🔴 ' : '🟡 ') + n.text).join('\n');
+    try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chatId, text })
+        });
+        if (!res.ok) throw new Error();
+        showToast('اعلان‌ها به تلگرام ارسال شد', 'success');
+    } catch (e) { showToast('ارسال ناموفق بود؛ توکن و شناسه چت را بررسی کنید', 'error'); }
+}
+window.sendNotificationsToTelegram = sendNotificationsToTelegram;
+
+/* --- 38: Inventory turnover report --------------------------------------------- */
+function renderInventoryTurnover() {
+    const products = dbRead(K.products);
+    const invoices = dbRead(K.invoices);
+    const cogsByProduct = {};
+    invoices.forEach(inv => inv.items.forEach(it => { if (it.productId) { const p = products.find(x => x.id === it.productId); const cost = (p ? num(p.buyPrice) : num(it.price) * 0.7) * num(it.qty); cogsByProduct[it.productId] = (cogsByProduct[it.productId] || 0) + cost; } }));
+    const rows = products.map(p => {
+        const cogs = cogsByProduct[p.id] || 0;
+        const avgInventoryValue = num(p.qty) * num(p.buyPrice) || 1;
+        const turnover = cogs / avgInventoryValue;
+        return { p, cogs, turnover };
+    }).sort((a, b) => a.turnover - b.turnover);
+    return `
+    ${viewHeader('زنجیره تأمین', 'گردش کالا (Inventory Turnover)', 'کالاهای با گردش پایین، سرمایه شما را در انبار بلوکه کرده‌اند', `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <table class="report-table"><thead><tr><th>کالا</th><th>موجودی فعلی</th><th>بهای فروش‌رفته (COGS)</th><th>نسبت گردش</th><th>وضعیت</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td class="text-cell">${esc(r.p.name)}</td><td>${num(r.p.qty).toLocaleString(localeForDigits())}</td><td>${moneyPlain(r.cogs)}</td><td>${r.turnover.toFixed(2)}</td><td>${r.turnover < 0.5 ? '<span class="badge badge-rose">راکد</span>' : r.turnover < 1.5 ? '<span class="badge badge-amber">کند</span>' : '<span class="badge badge-emerald">خوب</span>'}</td></tr>`).join('')}</tbody></table>
+    `;
+}
+VIEW_RENDERERS.inventoryTurnover = renderInventoryTurnover;
+
+/* --- 39: Purchase demand forecasting (simple moving average) ------------------ */
+function renderDemandForecast() {
+    const products = dbRead(K.products);
+    const invoices = dbRead(K.invoices);
+    const forecasts = products.map(p => {
+        const months = [];
+        for (let i = 2; i >= 0; i--) {
+            const d = new Date(); d.setMonth(d.getMonth() - i);
+            const qty = invoices.filter(inv => { const id = new Date(inv.date); return id.getFullYear() === d.getFullYear() && id.getMonth() === d.getMonth(); })
+                .reduce((s, inv) => s + inv.items.filter(it => it.productId === p.id).reduce((s2, it) => s2 + num(it.qty), 0), 0);
+            months.push(qty);
+        }
+        const avg = months.reduce((a, b) => a + b, 0) / 3;
+        const trend = months[2] - months[0]; // simple trend: latest month vs 2-months-ago
+        const forecastNextMonth = Math.max(0, Math.round(avg + trend / 2));
+        return { p, avg, forecastNextMonth };
+    }).filter(f => f.forecastNextMonth > 0).sort((a, b) => b.forecastNextMonth - a.forecastNextMonth);
+    return `
+    ${viewHeader('زنجیره تأمین', 'پیش‌بینی نیاز خرید', 'بر اساس میانگین و روند فروش ۳ ماه اخیر', `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <table class="report-table"><thead><tr><th>کالا</th><th>میانگین فروش ماهانه</th><th>پیش‌بینی ماه آینده</th><th>موجودی فعلی</th><th>کسری پیش‌بینی‌شده</th></tr></thead>
+    <tbody>${forecasts.map(f => { const shortfall = Math.max(0, f.forecastNextMonth - num(f.p.qty)); return `<tr><td class="text-cell">${esc(f.p.name)}</td><td>${f.avg.toFixed(1)}</td><td>${f.forecastNextMonth.toLocaleString(localeForDigits())}</td><td>${num(f.p.qty).toLocaleString(localeForDigits())}</td><td style="color:${shortfall > 0 ? 'var(--accent-rose)' : 'var(--accent-emerald)'};">${shortfall > 0 ? shortfall.toLocaleString(localeForDigits()) : 'کافی است'}</td></tr>`; }).join('') || '<tr><td colspan="5">داده کافی برای پیش‌بینی وجود ندارد</td></tr>'}</tbody></table>
+    `;
+}
+VIEW_RENDERERS.demandForecast = renderDemandForecast;
+
+/* --- 40: Overall supply-chain KPI report --------------------------------------- */
+function renderSupplyChainKPI() {
+    const pos = dbRead(K.purchaseOrders).filter(po => po.actualDeliveryDate && po.expectedDeliveryDate);
+    const onTime = pos.filter(po => new Date(po.actualDeliveryDate) <= new Date(po.expectedDeliveryDate)).length;
+    const onTimeRate = pos.length ? Math.round(onTime / pos.length * 100) : null;
+    const leadTimes = dbRead(K.purchaseOrders).filter(po => po.date && po.actualDeliveryDate).map(po => (new Date(po.actualDeliveryDate) - new Date(po.date)) / 86400000);
+    const avgLeadTime = leadTimes.length ? (leadTimes.reduce((a, b) => a + b, 0) / leadTimes.length) : null;
+    const totalSales = dbRead(K.invoices).reduce((s, i) => s + num(i.total), 0);
+    const totalPurchaseCost = dbRead(K.purchases).reduce((s, p) => s + num(p.total), 0);
+    const supplyChainCostRatio = totalSales ? (totalPurchaseCost / totalSales * 100) : null;
+    return `
+    ${viewHeader('زنجیره تأمین', 'گزارش عملکرد کلی زنجیره تأمین (KPI)', '', `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <div class="stat-grid">
+        <div class="stat-card"><div class="stat-val">${onTimeRate !== null ? onTimeRate + '٪' : '-'}</div><div class="stat-label">نرخ تحویل به‌موقع تأمین‌کنندگان</div></div>
+        <div class="stat-card"><div class="stat-val">${avgLeadTime !== null ? avgLeadTime.toFixed(1) : '-'}</div><div class="stat-label">میانگین زمان تحویل (روز)</div></div>
+        <div class="stat-card"><div class="stat-val">${supplyChainCostRatio !== null ? supplyChainCostRatio.toFixed(1) + '٪' : '-'}</div><div class="stat-label">نسبت هزینه خرید به فروش</div></div>
+        <div class="stat-card"><div class="stat-val">${dbRead(K.suppliers).length.toLocaleString(localeForDigits())}</div><div class="stat-label">تعداد تأمین‌کنندگان فعال</div></div>
+    </div>
+    <div class="section-box">
+        <div class="section-title">رتبه‌بندی تأمین‌کنندگان بر اساس امتیاز</div>
+        ${dbRead(K.suppliers).filter(s => supplierAvgRating(s) > 0).sort((a, b) => supplierAvgRating(b) - supplierAvgRating(a)).map(s => `<div class="list-item"><div class="list-item-row"><div class="list-item-title">${esc(s.name)}</div><div class="txt-caption" style="color:#f5a524;">${ratingStars(supplierAvgRating(s))}</div></div></div>`).join('') || `<div class="empty-state">هنوز امتیازی ثبت نشده.</div>`}
+    </div>
+    <p class="txt-caption">نرخ تحویل به‌موقع و میانگین زمان تحویل بر اساس سفارش‌های خریدی محاسبه می‌شود که تاریخ تحویل موردانتظار و واقعی برایشان ثبت شده باشد.</p>
+    `;
+}
+VIEW_RENDERERS.supplyChainKPI = renderSupplyChainKPI;
+
+/* --- 16 & 17 (follow-up): Batch/expiry dashboard + supplier QC report -------- */
+function renderBatchTracking() {
+    const batches = dbRead(K.batches).filter(b => num(b.qtyRemaining) > 0).sort((a, b) => new Date(a.expiryDate || '9999-12-31') - new Date(b.expiryDate || '9999-12-31'));
+    const now = new Date();
+    return `
+    ${viewHeader('زنجیره تأمین', 'ردیابی بچ و تاریخ انقضا', `${batches.length.toLocaleString(localeForDigits())} بچ فعال`, `<button class="nav-btn" onclick="switchView('supplyChainHub')" title="بازگشت"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></button>`)}
+    <p class="txt-caption" style="margin-bottom:10px;">این ردیابی از لحظه‌ای که برای اولین بار شماره بچ/تاریخ انقضا را هنگام ثبت دریافت سفارش خرید وارد کنید فعال می‌شود؛ خروج از انبار هم به‌صورت خودکار به روش FEFO (اول‌کالای‌زودتر‌منقضی) از قدیمی‌ترین بچ کسر می‌شود.</p>
+    ${batches.length ? batches.map(b => {
+        const daysLeft = b.expiryDate ? Math.round((new Date(b.expiryDate) - now) / 86400000) : null;
+        const expired = daysLeft !== null && daysLeft < 0;
+        const soon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 30;
+        return `<div class="list-item"><div class="list-item-row">
+            <div><div class="list-item-title">${esc(b.productName)}</div><div class="list-item-sub">بچ: ${esc(b.batchNumber)} · باقی‌مانده: ${num(b.qtyRemaining).toLocaleString(localeForDigits())}</div></div>
+            ${b.expiryDate ? `<span class="badge ${expired ? 'badge-rose' : soon ? 'badge-amber' : 'badge-emerald'}">${expired ? 'منقضی‌شده' : fmtDate(b.expiryDate)}</span>` : `<span class="badge badge-cyan">بدون انقضا</span>`}
+        </div></div>`;
+    }).join('') : `<div class="empty-state">هنوز بچی ثبت نشده؛ هنگام ثبت دریافت سفارش خرید، شماره بچ یا تاریخ انقضا را وارد کنید.</div>`}
+    `;
+}
+VIEW_RENDERERS.batchTracking = renderBatchTracking;
+
+function supplierQCStats(supplierId) {
+    const pos = dbRead(K.purchaseOrders).filter(po => po.supplierId === supplierId);
+    let good = 0, defective = 0, short = 0;
+    pos.forEach(po => po.items.forEach(it => {
+        if (it.qcStatus === 'good') good += num(it.receivedQty);
+        else if (it.qcStatus === 'defective') defective += num(it.receivedQty);
+        else if (it.qcStatus === 'short') short += num(it.receivedQty);
+    }));
+    const total = good + defective + short;
+    return { good, defective, short, total, defectRate: total ? Math.round(defective / total * 100) : 0 };
+}
 
 /* ---------------------------------------------------------------------------
    Add-partner wizard: when a solo owner brings in a partner after already
@@ -6230,6 +7270,12 @@ function renderSettings() {
         </div>
     </div>
 
+    ${isProMode() ? `<div class="section-box">
+        <div class="section-title">سقف تأیید سفارش خرید (گردش کار تأیید)</div>
+        <p class="txt-caption" style="margin-bottom:10px;">سفارش‌های خرید بالاتر از این مبلغ، قبل از تبدیل به فاکتور خرید نیاز به تأیید (ثبت نام تأییدکننده) دارند. برای غیرفعال کردن این محدودیت، خالی بگذارید.</p>
+        <input type="text" inputmode="numeric" id="st_poThreshold" value="${num(getSettings().poApprovalThreshold) || ''}" placeholder="مثلاً 50000000" onchange="saveSettings({poApprovalThreshold: num(this.value)})">
+    </div>` : ''}
+
     <div class="section-box">
         <div class="section-title">سرمایه پایه (برای محاسبه سود/زیان ارزی)</div>
         <p class="txt-caption" style="margin-bottom:10px;">اگر سرمایه اولیه فروشگاه شما در واقع بر پایه یک ارز خارجی بوده (مثلاً دلار)، این‌جا ثبت کنید تا در گزارش «سود و زیان ارزی» بتوانیم با توجه به نرخ روز، سود/زیان واقعی را محاسبه کنیم.</p>
@@ -6657,7 +7703,7 @@ const HELP_SECTIONS = [
     ['نکته مهم درباره ذخیره‌سازی', `این نرم‌افزار کاملاً محلی (client-side) است و اطلاعات فقط در همان مرورگر/دستگاه شما ذخیره می‌شود؛ هیچ سروری اطلاعات شما را دریافت نمی‌کند. برای همگام‌سازی بین چند دستگاه یا دسترسی چندکاربره آنلاین، نیاز به افزودن یک سرویس بک‌اند (مانند Firebase) دارد که در نسخه فعلی پیاده‌سازی نشده است.`]
 ];
 
-const APP_BUILD_LABEL = 'نسخه ۱۰ — بروزرسانی ۱۵ شهریور ۱۴۰۵ (شروع ماژول زنجیره تأمین — گروه الف)';
+const APP_BUILD_LABEL = 'نسخه ۱۵ — بروزرسانی ۲۰ شهریور ۱۴۰۵ (تست خودکار کل برنامه + رفع باگ راهنمای اولیه)';
 function renderHelp() {
     return `
     ${viewHeader('سیستم', 'راهنمای کامل برنامه', 'آموزش گام‌به‌گام استفاده از حسابداری پلاس برای کاربران تازه‌کار')}
