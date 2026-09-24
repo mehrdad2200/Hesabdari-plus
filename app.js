@@ -1123,7 +1123,7 @@ function generateSeedData(businessType) {
 let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [], appMode: 'pro' };
 
 function startOnboarding() {
-    onboardState = { phase: 'intro', step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: false, hasPartners: false, percentMode: 'auto', partnersDraft: [], appMode: 'pro' };
+    onboardState = { phase: 'intro', step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [], appMode: 'pro' };
     const overlay = document.getElementById('onboardOverlay');
     overlay.hidden = false;
     renderOnboard();
@@ -1344,7 +1344,7 @@ function obNext() {
         showToast('لطفاً اسم فروشگاه را وارد کنید', 'error');
         return;
     }
-    if (onboardState.step < 4) {
+    if (onboardState.step < 5) {
         onboardState.step++;
         renderOnboard();
         return;
