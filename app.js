@@ -1119,17 +1119,42 @@ function generateSeedData(businessType) {
 
 /* ---------------------------------------------------------------------------
    Robust mouse-wheel scrolling
+   - Desktop sidebar: flex + overflow alone can fail under html{zoom}; force scrollTop.
+   - Onboarding card + long صنف grid: same treatment so «ادامه» is always reachable.
    ------------------------------------------------------------------------- */
+function _applyWheelDelta(el, deltaY) {
+    if (!el) return false;
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (max <= 0) return false;
+    const before = el.scrollTop;
+    const next = Math.max(0, Math.min(max, before + deltaY));
+    if (next === before) return false;
+    el.scrollTop = next;
+    return true;
+}
+
 function installWheelScrollFixes() {
     const sidebar = document.getElementById('sidebarScrollArea');
     if (sidebar && !sidebar.dataset.wheelFixed) {
         sidebar.dataset.wheelFixed = 'true';
         sidebar.addEventListener('wheel', (event) => {
-            if (window.matchMedia('(min-width: 900px)').matches && sidebar.scrollHeight > sidebar.clientHeight) {
-                const before = sidebar.scrollTop;
-                const max = sidebar.scrollHeight - sidebar.clientHeight;
-                sidebar.scrollTop = Math.max(0, Math.min(max, before + event.deltaY));
-                if (sidebar.scrollTop !== before) event.preventDefault();
+            if (!window.matchMedia('(min-width: 900px)').matches) return;
+            if (_applyWheelDelta(sidebar, event.deltaY)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        }, { passive: false });
+    }
+
+    const nav = document.getElementById('bottomNav');
+    if (nav && !nav.dataset.wheelFixed) {
+        nav.dataset.wheelFixed = 'true';
+        nav.addEventListener('wheel', (event) => {
+            if (!window.matchMedia('(min-width: 900px)').matches) return;
+            const area = document.getElementById('sidebarScrollArea');
+            if (_applyWheelDelta(area, event.deltaY)) {
+                event.preventDefault();
+                event.stopPropagation();
             }
         }, { passive: false });
     }
@@ -1138,12 +1163,22 @@ function installWheelScrollFixes() {
     if (overlay && !overlay.dataset.wheelFixed) {
         overlay.dataset.wheelFixed = 'true';
         overlay.addEventListener('wheel', (event) => {
-            const card = event.target.closest('.onboard-card');
-            if (!card || card.scrollHeight <= card.clientHeight) return;
-            const before = card.scrollTop;
-            const max = card.scrollHeight - card.clientHeight;
-            card.scrollTop = Math.max(0, Math.min(max, before + event.deltaY));
-            if (card.scrollTop !== before) event.preventDefault();
+            const nested = event.target.closest('.biz-type-grid-scrollable');
+            if (_applyWheelDelta(nested, event.deltaY)) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            const card = event.target.closest('.onboard-card') || overlay.querySelector('.onboard-card');
+            if (_applyWheelDelta(card, event.deltaY)) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            if (_applyWheelDelta(overlay, event.deltaY)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
         }, { passive: false });
     }
 }
@@ -1240,7 +1275,7 @@ function renderOnboard() {
         body = `
         <div class="input-group">
             <label>نوع شغل / صنف شما چیست؟ *</label>
-            <div class="biz-type-grid">
+            <div class="biz-type-grid biz-type-grid-scrollable">
                 ${BUSINESS_TYPES.map(b => `<div class="biz-type-card ${onboardState.businessType === b.id ? 'active' : ''}" onclick="obSelectBiz('${b.id}')"><div class="biz-type-emoji">${b.emoji}</div><div class="biz-type-label">${esc(b.label)}</div></div>`).join('')}
             </div>
         </div>

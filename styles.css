@@ -284,14 +284,15 @@ a { color: inherit; }
        with the mouse wheel, trackpad, keyboard or touch. */
     .sidebar-scroll-area {
         display: flex; flex-direction: column; gap: 2px;
-        flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+        flex: 1 1 0; min-height: 0; height: 0;
+        overflow-y: auto; overflow-x: hidden;
         scrollbar-gutter: stable; overscroll-behavior: contain;
         -webkit-overflow-scrolling: touch;
         touch-action: pan-y;
-        max-height: none;
     }
-    .sidebar-scroll-area::-webkit-scrollbar { width: 5px; }
-    .sidebar-scroll-area::-webkit-scrollbar-thumb { background: transparent; border-radius: var(--r-pill); transition: background 0.2s ease; }
+    .sidebar-scroll-area::-webkit-scrollbar { width: 6px; }
+    .sidebar-scroll-area::-webkit-scrollbar-track { background: transparent; }
+    .sidebar-scroll-area::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: var(--r-pill); }
     .sidebar-scroll-area:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
     .app-shell[data-sidebar-collapsed="true"] .bottom-nav { width: var(--sidebar-w-collapsed); padding: 18px 10px; }
 
@@ -1477,19 +1478,32 @@ select, input[type="checkbox"], input[type="radio"] { accent-color: var(--accent
 
 /* Onboarding wizard ------------------------------------------------------ */
 .onboard-overlay {
-    position: fixed; inset: 0; z-index: 3000; background: var(--bg-color);
-    display: flex; align-items: center; justify-content: center; padding: 18px;
+    position: fixed; inset: 0; z-index: 3000;
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 18px; padding-top: max(18px, 4vh); padding-bottom: max(18px, 4vh);
+    overflow-y: auto; overflow-x: hidden;
+    -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y;
     background:
         radial-gradient(circle at 12% 0%, rgba(99, 102, 241, 0.10), transparent 40%),
         radial-gradient(circle at 100% 100%, rgba(34, 184, 207, 0.08), transparent 40%),
         var(--bg-color);
 }
 .onboard-card {
-    width: 100%; max-width: 460px; background: var(--card-bg); border: 1px solid var(--border-color);
-    border-radius: var(--r-xl); box-shadow: var(--shadow-3); padding: 26px 22px; max-height: 92vh; overflow-y: auto;
+    width: 100%; max-width: 460px;
+    background: var(--card-bg); border: 1px solid var(--border-color);
+    border-radius: var(--r-xl); box-shadow: var(--shadow-3);
+    padding: 26px 22px;
+    /* Card itself is the primary scroll container so mouse-wheel always has a target */
+    max-height: min(92vh, calc(100dvh - 36px));
+    min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain; scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch; touch-action: pan-y;
+    margin: auto; /* keeps card vertically centered when content is short */
 }
-.onboard-overlay { overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
-.onboard-card { min-height: 0; max-height: min(92vh, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+.onboard-card::-webkit-scrollbar { width: 6px; }
+.onboard-card::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: var(--r-pill); }
+.onboard-card:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
 .onboard-card #onboardBody { min-height: 0; }
 
 .onboard-logo { width: 54px; height: 54px; border-radius: var(--r-lg); margin: 0 auto 14px; display: flex; align-items: center; justify-content: center;
@@ -1501,12 +1515,21 @@ select, input[type="checkbox"], input[type="radio"] { accent-color: var(--accent
 .onboard-dot { width: 26px; height: 4px; border-radius: var(--r-pill); background: var(--border-color); transition: background .2s ease; }
 .onboard-dot.active { background: linear-gradient(90deg, var(--accent-glow-2), var(--accent-cyan)); }
 .biz-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
+/* Long lists (نوع شغل / صنف) scroll inside the grid so the «ادامه» button stays reachable */
+.biz-type-grid.biz-type-grid-scrollable {
+    max-height: min(42vh, 320px);
+    overflow-y: auto; overflow-x: hidden;
+    overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y;
+    padding-inline-end: 4px; margin-bottom: 10px;
+}
+.biz-type-grid.biz-type-grid-scrollable::-webkit-scrollbar { width: 5px; }
+.biz-type-grid.biz-type-grid-scrollable::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: var(--r-pill); }
 .biz-type-card { border: 1.5px solid var(--border-color); background: var(--input-bg); border-radius: var(--r-md); padding: 12px 8px; text-align: center; cursor: pointer; transition: all .15s ease; }
 .biz-type-card:hover { border-color: var(--border-strong); }
 .biz-type-card.active { border-color: var(--accent-cyan); background: rgba(34,184,207,.1); }
 .biz-type-emoji { font-size: 1.4rem; margin-bottom: 4px; }
 .biz-type-label { font-size: 0.72rem; font-weight: 700; color: var(--text-main); }
-.onboard-nav { display: flex; gap: 8px; margin-top: 18px; }
+.onboard-nav { display: flex; gap: 8px; margin-top: 18px; position: sticky; bottom: 0; background: var(--card-bg); padding-top: 10px; z-index: 2; }
 .onboard-nav .btn-action { flex: 1; }
 .onboard-nav .calc-btn { flex: 2; margin-bottom: 0; }
 
