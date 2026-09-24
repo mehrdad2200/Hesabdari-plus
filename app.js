@@ -1118,6 +1118,43 @@ function generateSeedData(businessType) {
 }
 
 /* ---------------------------------------------------------------------------
+   Robust mouse-wheel scrolling
+   ------------------------------------------------------------------------- */
+function installWheelScrollFixes() {
+    const sidebar = document.getElementById('sidebarScrollArea');
+    if (sidebar && !sidebar.dataset.wheelFixed) {
+        sidebar.dataset.wheelFixed = 'true';
+        sidebar.addEventListener('wheel', (event) => {
+            if (window.matchMedia('(min-width: 900px)').matches && sidebar.scrollHeight > sidebar.clientHeight) {
+                const before = sidebar.scrollTop;
+                const max = sidebar.scrollHeight - sidebar.clientHeight;
+                sidebar.scrollTop = Math.max(0, Math.min(max, before + event.deltaY));
+                if (sidebar.scrollTop !== before) event.preventDefault();
+            }
+        }, { passive: false });
+    }
+
+    const overlay = document.getElementById('onboardOverlay');
+    if (overlay && !overlay.dataset.wheelFixed) {
+        overlay.dataset.wheelFixed = 'true';
+        overlay.addEventListener('wheel', (event) => {
+            const card = event.target.closest('.onboard-card');
+            if (!card || card.scrollHeight <= card.clientHeight) return;
+            const before = card.scrollTop;
+            const max = card.scrollHeight - card.clientHeight;
+            card.scrollTop = Math.max(0, Math.min(max, before + event.deltaY));
+            if (card.scrollTop !== before) event.preventDefault();
+        }, { passive: false });
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installWheelScrollFixes, { once: true });
+} else {
+    installWheelScrollFixes();
+}
+
+/* ---------------------------------------------------------------------------
    Onboarding wizard (first run)
    ------------------------------------------------------------------------- */
 let onboardState = { step: 1, storeName: '', ownerName: '', businessType: 'clothing', phone: '', address: '', currency: 'تومان', taxEnabled: false, taxPercent: 9, loadDemo: true, hasPartners: false, percentMode: 'auto', partnersDraft: [], appMode: 'pro' };

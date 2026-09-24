@@ -273,20 +273,21 @@ a { color: inherit; }
         width: var(--sidebar-w); max-width: none; height: 100vh; height: 100dvh;
         flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0;
         padding: 18px 12px; border-top: none; border-inline-end: 1px solid var(--border-color);
-        border-radius: 0; overflow-y: auto; overflow-x: hidden;
+        border-radius: 0; overflow: hidden;
         overscroll-behavior: contain; scrollbar-gutter: stable;
         -webkit-overflow-scrolling: touch;
         transition: width 0.25s ease, padding 0.25s ease;
+        min-height: 0;
     }
-    /* Fixed header (store brand) + fixed footer (collapse button), with only the middle nav-item
-       list actually scrolling — this is what makes every item (down to پشتیبان‌گیری/تنظیمات)
-       reachable even on a short window, instead of the whole sidebar silently overflowing. */
+    /* Desktop: the menu list is its own real scroll container. The header and collapse
+       button stay visible while every navigation item (including تنظیمات) can be reached
+       with the mouse wheel, trackpad, keyboard or touch. */
     .sidebar-scroll-area {
         display: flex; flex-direction: column; gap: 2px;
-        flex: 0 0 auto; min-height: 0; overflow: visible;
-        scrollbar-gutter: auto; overscroll-behavior: auto;
-        /* The sidebar itself is the scroll container. This keeps every menu item, including
-           تنظیمات, reachable at any desktop window height/zoom level. */
+        flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+        scrollbar-gutter: stable; overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
         max-height: none;
     }
     .sidebar-scroll-area::-webkit-scrollbar { width: 5px; }
@@ -1487,8 +1488,8 @@ select, input[type="checkbox"], input[type="radio"] { accent-color: var(--accent
     width: 100%; max-width: 460px; background: var(--card-bg); border: 1px solid var(--border-color);
     border-radius: var(--r-xl); box-shadow: var(--shadow-3); padding: 26px 22px; max-height: 92vh; overflow-y: auto;
 }
-.onboard-overlay { overflow: auto; -webkit-overflow-scrolling: touch; }
-.onboard-card { min-height: 0; max-height: calc(100dvh - 36px); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.onboard-overlay { overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
+.onboard-card { min-height: 0; max-height: min(92vh, calc(100dvh - 24px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
 .onboard-card #onboardBody { min-height: 0; }
 
 .onboard-logo { width: 54px; height: 54px; border-radius: var(--r-lg); margin: 0 auto 14px; display: flex; align-items: center; justify-content: center;
