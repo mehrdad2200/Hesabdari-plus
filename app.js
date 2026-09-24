@@ -4135,8 +4135,17 @@ function initFirebase() {
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
         fbAuth.onAuthStateChanged(onCloudAuthChange);
-        // Complete a redirect login if a popup was unavailable and the browser returned here.
-        fbAuth.getRedirectResult().catch(() => {});
+        // Complete a redirect login (Chrome often falls back to redirect when popup is blocked).
+        fbAuth.getRedirectResult().then((result) => {
+            if (result && result.user) {
+                setCloudStatus('syncing');
+                showToast('ورود با گوگل انجام شد', 'success');
+            }
+        }).catch((e) => {
+            if (e && e.code && e.code !== 'auth/redirect-cancelled-by-user') {
+                console.warn('getRedirectResult', e.code, e.message);
+            }
+        });
         window.addEventListener('online', () => { if (fbUser) setCloudStatus('synced'); });
         window.addEventListener('offline', () => { if (fbUser) setCloudStatus('error'); });
     } catch (e) { setCloudStatus('signedout'); }
@@ -4179,62 +4188,204 @@ async function onCloudAuthChange(user) {
     if (getSettings().onboarded) autoReconcileCloud();
 }
 let _driveAccessToken = null;
+
+function _googleProvider(withDriveScope) {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    if (withDriveScope) {
+        // drive.file = فقط فایل‌هایی که همین برنامه می‌سازد (امن‌تر از drive کامل)
+        provider.addScope('https://www.googleapis.com/auth/drive.file');
+        // بدون prompt:consent گوگل اغلب accessToken برنمی‌گرداند چون کاربر قبلاً وارد شده
+        provider.setCustomParameters({ prompt: 'consent', access_type: 'online' });
+    }
+    return provider;
+}
+
+function _isChromeLike() {
+    const ua = navigator.userAgent || '';
+    // Chromium family (Chrome, Edge, Opera, Brave) — not Firefox/Safari
+    return /Chrome|Chromium|Edg|OPR|Brave/i.test(ua) && !/Firefox|FxiOS/i.test(ua);
+}
+
+function _authRunningFromFile() {
+    return location.protocol === 'file:';
+}
+
 function signInWithGoogle() {
     if (!fbAuth) { showToast('اتصال به گوگل برقرار نشد؛ اتصال اینترنت را بررسی کنید', 'error'); return; }
-    const provider = new firebase.auth.GoogleAuthProvider();
-    // Do not request Drive permission during normal sign-in. Drive permission is requested only
-    // when the user explicitly starts a Drive backup.
+
+    // Chrome blocks many Firebase Auth flows on file:// — must be served over http(s)
+    if (_authRunningFromFile()) {
+        showToast('برای ورود گوگل، برنامه را با یک سرور محلی باز کنید (نه به‌صورت فایل مستقیم). مثلاً: npx serve .', 'error');
+        return;
+    }
+
+    const provider = _googleProvider(false);
     setCloudStatus('syncing');
+
+    const goRedirect = () => {
+        showToast('در حال انتقال به صفحه ورود گوگل...', 'success');
+        try {
+            // Remember we started redirect so UI can show a hint after return
+            try { sessionStorage.setItem('ap_google_redirect_pending', '1'); } catch (_) {}
+            fbAuth.signInWithRedirect(provider);
+        } catch (err) {
+            setCloudStatus('error');
+            showToast('انتقال به گوگل ممکن نشد: ' + ((err && err.message) || 'خطا'), 'error');
+        }
+    };
+
+    // On Chromium, popup frequently fails with auth/network-request-failed
+    // (third-party cookie / COOP / extension). Prefer redirect on Chrome.
+    if (_isChromeLike()) {
+        goRedirect();
+        return;
+    }
+
     fbAuth.signInWithPopup(provider).then(() => {
         setCloudStatus('syncing');
     }).catch((e) => {
-        const fallbackCodes = ['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request'];
-        if (fallbackCodes.includes(e && e.code)) {
-            try { fbAuth.signInWithRedirect(provider); return; } catch (_) {}
+        const code = e && e.code;
+        // These codes mean "try redirect instead"
+        const fallbackCodes = [
+            'auth/popup-blocked',
+            'auth/popup-closed-by-user',
+            'auth/cancelled-popup-request',
+            'auth/network-request-failed',
+            'auth/web-storage-unsupported',
+            'auth/operation-not-supported-in-this-environment'
+        ];
+        if (fallbackCodes.includes(code)) {
+            goRedirect();
+            return;
         }
         setCloudStatus('error');
-        showToast('ورود گوگل انجام نشد: ' + (e.message || 'خطای ناشناخته'), 'error');
+        const friendly = code === 'auth/network-request-failed'
+            ? 'ارتباط با سرور گوگل برقرار نشد. فیلترشکن/آنتی‌ویروس را موقتاً خاموش کنید یا از روش دیگر تلاش کنید.'
+            : ('ورود گوگل انجام نشد: ' + ((e && e.message) || 'خطای ناشناخته'));
+        showToast(friendly, 'error');
     });
 }
 window.signInWithGoogle = signInWithGoogle;
-async function ensureDriveAccessToken() {
-    if (_driveAccessToken) return _driveAccessToken;
+
+/** استخراج accessToken از نتیجه popup / reauth فایربیس */
+function _tokenFromAuthResult(result) {
+    if (!result) return null;
+    try {
+        const cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
+        if (cred && cred.accessToken) return cred.accessToken;
+    } catch (_) {}
+    if (result.credential && result.credential.accessToken) return result.credential.accessToken;
+    return null;
+}
+
+/**
+ * گرفتن توکن OAuth برای Google Drive API.
+ * اگر کاربر قبلاً فقط برای ورود (بدون scope درایو) ساین‌این کرده باشد،
+ * signInWithPopup معمولی accessToken برنمی‌گرداند — باید با prompt:consent
+ * و ترجیحاً reauthenticateWithPopup رضایت Drive را دوباره بگیریم.
+ */
+async function ensureDriveAccessToken(forceRefresh) {
+    if (_driveAccessToken && !forceRefresh) return _driveAccessToken;
     if (!fbAuth || !fbUser) throw new Error('not-authenticated');
-    const provider = new firebase.auth.GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/drive.file');
-    const result = await fbAuth.signInWithPopup(provider);
-    const cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
-    _driveAccessToken = cred && cred.accessToken;
+
+    const provider = _googleProvider(true);
+    let result = null;
+    try {
+        const isGoogle = (fbUser.providerData || []).some(p => p && p.providerId === 'google.com');
+        if (isGoogle && typeof fbUser.reauthenticateWithPopup === 'function') {
+            try {
+                result = await fbUser.reauthenticateWithPopup(provider);
+            } catch (reauthErr) {
+                if (reauthErr && (reauthErr.code === 'auth/popup-closed-by-user' || reauthErr.code === 'auth/cancelled-popup-request')) {
+                    throw reauthErr;
+                }
+                result = await fbAuth.signInWithPopup(provider);
+            }
+        } else {
+            result = await fbAuth.signInWithPopup(provider);
+        }
+    } catch (e) {
+        const code = e && e.code;
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+            return null;
+        }
+        if (code === 'auth/popup-blocked') {
+            showToast('پنجره ورود توسط مرورگر مسدود شد؛ اجازه پاپ‌آپ بدهید و دوباره تلاش کنید', 'error');
+            return null;
+        }
+        if (code === 'auth/network-request-failed') {
+            showToast('کروم ارتباط با گوگل را قطع کرد. افزونه‌های مسدودکننده را خاموش کنید یا از فایرفاکس استفاده کنید؛ برای آپلود Drive باید پاپ‌آپ مجاز باشد.', 'error');
+            return null;
+        }
+        throw e;
+    }
+
+    _driveAccessToken = _tokenFromAuthResult(result);
     return _driveAccessToken;
 }
+
 function signOutCloud() {
+    _driveAccessToken = null;
     if (fbAuth) fbAuth.signOut();
     showToast('از حساب گوگل خارج شدید', 'success');
 }
 window.signOutCloud = signOutCloud;
+
+async function _uploadBackupToDrive(token) {
+    const data = collectFullExportData();
+    const stamp = new Date().toISOString().slice(0, 10);
+    const filename = `پشتیبان-حسابداری-${stamp}.json`;
+    const metadata = { name: filename, mimeType: 'application/json' };
+    const boundary = 'apboundary' + Date.now();
+    const body =
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+        `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(data)}\r\n--${boundary}--`;
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+        body
+    });
+    return res;
+}
+
 async function backupToGoogleDrive() {
     if (!fbUser) { showToast('ابتدا با گوگل وارد شوید', 'error'); return; }
-    showToast('در حال آماده‌سازی و آپلود فایل...', 'success');
+    showToast('در حال درخواست مجوز گوگل‌درایو و آپلود...', 'success');
     try {
-        const token = await ensureDriveAccessToken();
-        if (!token) { showToast('اجازه دسترسی به گوگل‌درایو داده نشد', 'error'); return; }
-        const data = collectFullExportData();
-        const stamp = new Date().toISOString().slice(0, 10);
-        const filename = `پشتیبان-حسابداری-${stamp}.json`;
-        const metadata = { name: filename, mimeType: 'application/json' };
-        const boundary = 'apboundary' + Date.now();
-        const body =
-            `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-            `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(data)}\r\n--${boundary}--`;
-        const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-            body
-        });
-        if (!res.ok) throw new Error('Drive upload failed: ' + res.status);
+        const token = await ensureDriveAccessToken(false);
+        if (!token) {
+            showToast('مجوز گوگل‌درایو داده نشد. در پنجره گوگل گزینهٔ اجازه را بزنید و پنجره را نبندید.', 'error');
+            return;
+        }
+        let res = await _uploadBackupToDrive(token);
+        if (res.status === 401 || res.status === 403) {
+            _driveAccessToken = null;
+            const token2 = await ensureDriveAccessToken(true);
+            if (!token2) {
+                showToast('مجوز گوگل‌درایو تمدید نشد؛ دوباره تلاش کنید و در پنجره گوگل اجازه بدهید.', 'error');
+                return;
+            }
+            res = await _uploadBackupToDrive(token2);
+        }
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.error('Drive upload failed', res.status, errText);
+            if (res.status === 403) {
+                showToast('دسترسی Drive رد شد. در Google Cloud باید API «Google Drive» برای این پروژه فعال باشد.', 'error');
+            } else {
+                showToast('آپلود ناموفق بود (کد ' + res.status + '). دوباره تلاش کنید.', 'error');
+            }
+            return;
+        }
         showToast('فایل پشتیبان با موفقیت در گوگل‌درایو شما آپلود شد', 'success');
     } catch (e) {
-        showToast('آپلود به گوگل‌درایو ناموفق بود؛ دوباره تلاش کنید', 'error');
+        console.error('backupToGoogleDrive', e);
+        const msg = (e && e.message) ? String(e.message) : '';
+        if (msg.includes('not-authenticated')) {
+            showToast('ابتدا با گوگل وارد شوید', 'error');
+        } else {
+            showToast('آپلود به گوگل‌درایو ناموفق بود؛ اتصال اینترنت و مسدودنبودن پاپ‌آپ را بررسی کنید', 'error');
+        }
     }
 }
 window.backupToGoogleDrive = backupToGoogleDrive;
