@@ -1118,9 +1118,7 @@ function generateSeedData(businessType) {
 }
 
 /* ---------------------------------------------------------------------------
-   Robust mouse-wheel scrolling
-   - Desktop sidebar: flex + overflow alone can fail under html{zoom}; force scrollTop.
-   - Onboarding card + long صنف grid: same treatment so «ادامه» is always reachable.
+   Robust mouse-wheel scrolling + sidebar height under html{zoom}
    ------------------------------------------------------------------------- */
 function _applyWheelDelta(el, deltaY) {
     if (!el) return false;
@@ -1133,13 +1131,67 @@ function _applyWheelDelta(el, deltaY) {
     return true;
 }
 
+/** Pin the fixed sidebar to the *visible* viewport height.
+ *  Under css zoom / scaled displays, 100vh is larger than what the user sees,
+ *  so the bottom items (تنظیمات, …) get clipped and never scroll into view. */
+function syncSidebarToViewport() {
+    const nav = document.getElementById('bottomNav');
+    const area = document.getElementById('sidebarScrollArea');
+    if (!nav) return;
+    if (!window.matchMedia('(min-width: 900px)').matches) {
+        nav.style.height = '';
+        nav.style.maxHeight = '';
+        if (area) { area.style.maxHeight = ''; }
+        return;
+    }
+    const vv = window.visualViewport;
+    // Prefer visualViewport (accounts for browser UI + pinch zoom). Fall back to innerHeight.
+    let h = (vv && vv.height) ? vv.height : window.innerHeight;
+    // When the document itself is CSS-zoomed (html{zoom:1.3}), layout pixels are smaller
+    // than visual pixels in some engines — divide by the computed zoom if > 1.
+    let z = 1;
+    try {
+        const zoomStr = getComputedStyle(document.documentElement).zoom;
+        if (zoomStr && zoomStr !== 'normal') {
+            const zNum = parseFloat(zoomStr);
+            if (zNum > 0 && isFinite(zNum)) z = zNum;
+        }
+    } catch (_) {}
+    // Also detect transform-based fallback scale on html
+    if (z === 1) {
+        try {
+            const t = getComputedStyle(document.documentElement).transform;
+            if (t && t !== 'none') {
+                const m = t.match(/matrix\(([^,]+)/);
+                if (m) {
+                    const sx = parseFloat(m[1]);
+                    if (sx > 0 && isFinite(sx) && Math.abs(sx - 1) > 0.01) z = sx;
+                }
+            }
+        } catch (_) {}
+    }
+    if (z > 1.01) h = h / z;
+    // Small safety inset so the last item isn't flush against the edge
+    h = Math.max(200, Math.floor(h) - 2);
+    nav.style.height = h + 'px';
+    nav.style.maxHeight = h + 'px';
+    // Ensure the inner scroll area can actually shrink inside the flex column
+    if (area) {
+        area.style.minHeight = '0';
+        area.style.flex = '1 1 0';
+        area.style.overflowY = 'auto';
+    }
+}
+
 function installWheelScrollFixes() {
     const sidebar = document.getElementById('sidebarScrollArea');
     if (sidebar && !sidebar.dataset.wheelFixed) {
         sidebar.dataset.wheelFixed = 'true';
         sidebar.addEventListener('wheel', (event) => {
             if (!window.matchMedia('(min-width: 900px)').matches) return;
-            if (_applyWheelDelta(sidebar, event.deltaY)) {
+            // Always attempt; even a 1px delta helps when metrics are off
+            const moved = _applyWheelDelta(sidebar, event.deltaY);
+            if (moved || (sidebar.scrollHeight > sidebar.clientHeight + 1)) {
                 event.preventDefault();
                 event.stopPropagation();
             }
@@ -1157,6 +1209,24 @@ function installWheelScrollFixes() {
                 event.stopPropagation();
             }
         }, { passive: false });
+    }
+
+    // Capture-phase document listener: if the pointer is over the sidebar rect, scroll it
+    if (!document.documentElement.dataset.sidebarWheelCapture) {
+        document.documentElement.dataset.sidebarWheelCapture = 'true';
+        document.addEventListener('wheel', (event) => {
+            if (!window.matchMedia('(min-width: 900px)').matches) return;
+            const area = document.getElementById('sidebarScrollArea');
+            const navEl = document.getElementById('bottomNav');
+            if (!area || !navEl) return;
+            const r = navEl.getBoundingClientRect();
+            const x = event.clientX, y = event.clientY;
+            if (x < r.left || x > r.right || y < r.top || y > r.bottom) return;
+            if (_applyWheelDelta(area, event.deltaY)) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+        }, { passive: false, capture: true });
     }
 
     const overlay = document.getElementById('onboardOverlay');
@@ -1181,6 +1251,17 @@ function installWheelScrollFixes() {
             }
         }, { passive: false });
     }
+
+    syncSidebarToViewport();
+    window.addEventListener('resize', syncSidebarToViewport);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', syncSidebarToViewport);
+        window.visualViewport.addEventListener('scroll', syncSidebarToViewport);
+    }
+    // Re-sync after fonts/layout settle
+    requestAnimationFrame(syncSidebarToViewport);
+    setTimeout(syncSidebarToViewport, 100);
+    setTimeout(syncSidebarToViewport, 500);
 }
 
 if (document.readyState === 'loading') {

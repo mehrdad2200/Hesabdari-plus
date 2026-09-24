@@ -108,9 +108,11 @@ html { font-variant-numeric: tabular-nums; }
    than a plain 1:1 render. Never applied on phones: zooming on top of an
    already mobile-sized layout is what made fonts look oversized there. */
 @media (min-width: 900px) {
-    html { zoom: 1.3; }
+    /* Mild default scale — 1.3 was clipping the fixed sidebar under many window heights.
+       Users can still enlarge text via Settings > اندازه فونت. */
+    html { zoom: 1.15; }
     @supports not (zoom: 1) {
-        html { transform: scale(1.3); transform-origin: top center; width: 76.92%; }
+        html { transform: scale(1.15); transform-origin: top center; width: 86.96%; }
     }
 }
 
@@ -270,14 +272,18 @@ a { color: inherit; }
 
     .bottom-nav {
         position: fixed; inset-inline-start: 0; top: 0; bottom: 0; left: auto; transform: none;
-        width: var(--sidebar-w); max-width: none; height: 100vh; height: 100dvh;
+        width: var(--sidebar-w); max-width: none;
+        /* No explicit 100vh — top/bottom already pin to the viewport. Explicit 100vh under
+           html{zoom} makes the bar taller than the visible window and clips تنظیمات. */
+        height: auto; max-height: 100%;
         flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0;
-        padding: 18px 12px; border-top: none; border-inline-end: 1px solid var(--border-color);
+        padding: 14px 10px; border-top: none; border-inline-end: 1px solid var(--border-color);
         border-radius: 0; overflow: hidden;
         overscroll-behavior: contain; scrollbar-gutter: stable;
         -webkit-overflow-scrolling: touch;
         transition: width 0.25s ease, padding 0.25s ease;
         min-height: 0;
+        box-sizing: border-box;
     }
     /* Desktop: the menu list is its own real scroll container. The header and collapse
        button stay visible while every navigation item (including تنظیمات) can be reached
@@ -290,15 +296,20 @@ a { color: inherit; }
         -webkit-overflow-scrolling: touch;
         touch-action: pan-y;
     }
-    .sidebar-scroll-area::-webkit-scrollbar { width: 6px; }
-    .sidebar-scroll-area::-webkit-scrollbar-track { background: transparent; }
-    .sidebar-scroll-area::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: var(--r-pill); }
-    .sidebar-scroll-area:hover::-webkit-scrollbar-thumb { background: var(--border-strong); }
+    .sidebar-scroll-area {
+        /* force scrollbar lane so overflow is obvious */
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+    }
+    .sidebar-scroll-area::-webkit-scrollbar { width: 7px; }
+    .sidebar-scroll-area::-webkit-scrollbar-track { background: rgba(127,127,127,0.08); border-radius: var(--r-pill); }
+    .sidebar-scroll-area::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: var(--r-pill); min-height: 24px; }
+    .sidebar-scroll-area:hover::-webkit-scrollbar-thumb { background: var(--text-muted); }
     .app-shell[data-sidebar-collapsed="true"] .bottom-nav { width: var(--sidebar-w-collapsed); padding: 18px 10px; }
 
     .sidebar-brand {
-        display: flex; align-items: center; gap: 10px; padding: 4px 6px 18px;
-        border-bottom: 1px solid var(--border-color); margin-bottom: 12px; flex-shrink: 0;
+        display: flex; align-items: center; gap: 10px; padding: 2px 6px 12px;
+        border-bottom: 1px solid var(--border-color); margin-bottom: 8px; flex-shrink: 0;
     }
     .sidebar-brand-icon {
         width: 36px; height: 36px; border-radius: var(--r-md); flex-shrink: 0;
@@ -315,19 +326,21 @@ a { color: inherit; }
     .app-shell[data-sidebar-collapsed="true"] .bn-item { justify-content: center; padding: 10px; }
 
     .nav-section-label {
-        display: block; font-size: 0.66rem; font-weight: 800; color: var(--text-muted);
-        text-transform: uppercase; letter-spacing: 0.04em; padding: 14px 10px 6px;
+        display: block; font-size: 0.62rem; font-weight: 800; color: var(--text-muted);
+        text-transform: uppercase; letter-spacing: 0.04em; padding: 10px 8px 4px;
+        flex-shrink: 0;
     }
-    .nav-section-label:first-of-type { padding-top: 4px; }
+    .nav-section-label:first-of-type { padding-top: 2px; }
 
     .desktop-only-nav { display: flex; }
     #moreNavBtn { display: none; }
 
     .bn-item {
-        width: 100%; flex-direction: row; justify-content: flex-start; gap: 10px;
-        padding: 9px 10px; border-radius: var(--r-md); font-size: 0.8rem; font-weight: 600;
+        width: 100%; flex-direction: row; justify-content: flex-start; gap: 8px;
+        padding: 7px 8px; border-radius: var(--r-md); font-size: 0.76rem; font-weight: 600;
         color: var(--text-secondary); position: relative; overflow: hidden; isolation: isolate;
         transition: color 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        flex-shrink: 0;
     }
     .bn-item::before {
         content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit;
@@ -352,9 +365,9 @@ a { color: inherit; }
     .bn-item svg { width: 18px; height: 18px; flex-shrink: 0; }
 
     .sidebar-collapse-btn {
-        display: flex; align-items: center; justify-content: center; margin-top: 10px; flex-shrink: 0;
-        width: 100%; padding: 9px; border-radius: var(--r-md); border: 1px solid var(--border-color);
-        background: transparent; color: var(--text-muted); cursor: pointer; gap: 8px; font-size: 0.72rem; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; margin-top: 6px; flex-shrink: 0;
+        width: 100%; padding: 7px; border-radius: var(--r-md); border: 1px solid var(--border-color);
+        background: transparent; color: var(--text-muted); cursor: pointer; gap: 8px; font-size: 0.7rem; font-weight: 700;
     }
     .sidebar-collapse-btn:hover { color: var(--text-main); border-color: var(--border-strong); }
     .sidebar-collapse-btn svg { transition: transform 0.25s ease; }
