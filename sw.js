@@ -1,9 +1,9 @@
-const CACHE_NAME = "hesabdari-plus-v15";
+const CACHE_NAME = "hesabdari-plus-v18";
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=15',
-  './app.js?v=15',
+  './styles.css?v=18',
+  './app.js?v=18',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',

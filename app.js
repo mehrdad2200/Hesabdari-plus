@@ -830,12 +830,21 @@ function viewHeader(eyebrow, title, subtitle, actionsHtml) {
    ------------------------------------------------------------------------- */
 const BUSINESS_TYPES = [
     { id: 'clothing', label: 'پوشاک', emoji: '👕' },
-    { id: 'digital', label: 'لوازم دیجیتال', emoji: '📱' },
-    { id: 'grocery', label: 'مواد غذایی', emoji: '🛒' },
+    { id: 'digital', label: 'لوازم دیجیتال و موبایل', emoji: '📱' },
+    { id: 'grocery', label: 'سوپرمارکت و مواد غذایی', emoji: '🛒' },
     { id: 'home', label: 'لوازم خانگی', emoji: '🏠' },
-    { id: 'beauty', label: 'آرایشی بهداشتی', emoji: '💄' },
+    { id: 'beauty', label: 'آرایشی و بهداشتی', emoji: '💄' },
     { id: 'stationery', label: 'کتاب و لوازم‌التحریر', emoji: '📚' },
-    { id: 'auto', label: 'لوازم یدکی خودرو', emoji: '🚗' },
+    { id: 'auto', label: 'لوازم یدکی و خدمات خودرو', emoji: '🚗' },
+    { id: 'restaurant', label: 'رستوران و کافه', emoji: '🍽️' },
+    { id: 'pharmacy', label: 'داروخانه و تجهیزات پزشکی', emoji: '💊' },
+    { id: 'hardware', label: 'ابزار و یراق', emoji: '🔧' },
+    { id: 'building', label: 'مصالح و تأسیسات ساختمان', emoji: '🧱' },
+    { id: 'furniture', label: 'مبلمان و دکوراسیون', emoji: '🛋️' },
+    { id: 'jewelry', label: 'طلا و جواهر', emoji: '💎' },
+    { id: 'bookstore', label: 'کتاب‌فروشی و فرهنگی', emoji: '📖' },
+    { id: 'online', label: 'فروشگاه آنلاین', emoji: '🛍️' },
+    { id: 'services', label: 'خدماتی', emoji: '🧰' },
     { id: 'other', label: 'سایر مشاغل', emoji: '🏪' }
 ];
 
@@ -991,6 +1000,17 @@ function generateSeedData(businessType) {
             unit: p[1], buyPrice: p[2], sellPrice: p[3], qty, minQty: randInt(3, 8), createdAt: daysAgoISO(randInt(30, 200))
         };
     });
+    // Demo warehouses and per-warehouse stock.
+    const warehouses = [
+        { id: uid('wh'), name: 'انبار اصلی', address: 'شعبه مرکزی', isDefault: true },
+        { id: uid('wh'), name: 'انبار پشتیبان', address: 'انبار دوم', isDefault: false },
+        { id: uid('wh'), name: 'شعبه فروش', address: 'شعبه نمونه', isDefault: false }
+    ];
+    dbWrite(K.warehouses, warehouses);
+    products.forEach((p, i) => {
+        const a = Math.floor(p.qty * 0.55), b = Math.floor(p.qty * 0.25);
+        p.stockByWarehouse = { [warehouses[0].id]: a, [warehouses[1].id]: b, [warehouses[2].id]: Math.max(0, p.qty - a - b) };
+    });
     dbWrite(K.products, products);
 
     // Customers
@@ -1069,9 +1089,30 @@ function generateSeedData(businessType) {
 
     // A couple of manual cash transactions
     dbWrite(K.cashtx, [
-        { id: uid('tx'), date: daysAgoISO(60), type: 'in', amount: 15000000, desc: 'سرمایه اولیه صندوق' },
+        { id: uid('tx'), date: daysAgoISO(60), type: 'in', amount: 15000000, desc: 'سرمایه اولیه فروشگاه' },
         { id: uid('tx'), date: daysAgoISO(20), type: 'out', amount: 2000000, desc: 'برداشت شخصی مالک' }
     ]);
+
+    // Partnership demo data. Capital paid in cash is reflected in the cash ledger too.
+    const partners = [
+        { id: uid('ptn'), name: getSettings().ownerName || 'صاحب فروشگاه', capitalToman: 80000000, percentManual: null, joinDate: daysAgoISO(120), isOwner: true, note: 'داده نمونه' },
+        { id: uid('ptn'), name: 'شریک نمونه', capitalToman: 40000000, percentManual: null, joinDate: daysAgoISO(90), isOwner: false, note: 'داده نمونه' }
+    ];
+    dbWrite(K.partners, partners);
+    dbWrite(K.cashtx, dbRead(K.cashtx).concat([
+        { id: uid('tx'), date: daysAgoISO(120), type: 'in', amount: 80000000, desc: 'سرمایه صاحب فروشگاه' },
+        { id: uid('tx'), date: daysAgoISO(90), type: 'in', amount: 40000000, desc: 'سرمایه شریک نمونه' }
+    ]));
+
+    const suppliers = DEMO_SUPPLIER_NAMES.slice(0, 3).map((name, i) => ({
+        id: uid('sup'), name, phone: '021' + (44000000 + i).toString(), contactPerson: 'کارشناس فروش', address: 'تهران',
+        category: 'عمومی', paymentTerms: 'cash', moq: 1, economicCode: '', bankAccount: '',
+        manufacturerName: i === 0 ? 'تولیدکننده نمونه' : '', distributorName: i === 0 ? 'توزیع‌کننده نمونه' : '',
+        qualityRating: 4, speedRating: 4, priceRating: 4, notes: 'داده نمونه', blacklisted: false, createdAt: daysAgoISO(100 - i * 10)
+    }));
+    dbWrite(K.suppliers, suppliers);
+    const poItems = products.slice(0, 3).map(p => ({ name: p.name, productId: p.id, qty: 20, price: p.buyPrice, receivedQty: 12, qcStatus: 'good', batchNumber: 'DEMO-01' }));
+    dbWrite(K.purchaseOrders, suppliers.length ? [{ id: uid('po'), number: 3001, date: daysAgoISO(15), supplierId: suppliers[0].id, status: 'partial', items: poItems, currency: 'تومان', fxRate: 0, freightCost: 0, customsFee: 0, insuranceCost: 0, warehousingCost: 0, trackingNumber: 'DEMO-TRK', shippingStatus: 'shipped', expectedDeliveryDate: daysAgoISO(-5), actualDeliveryDate: '', note: 'داده نمونه' }] : []);
 
     dbWrite(K.seeded, true);
 }
@@ -1129,8 +1170,8 @@ function renderOnboard() {
     if (onboardState.phase === 'intro') { renderOnboardIntroPhase(); return; }
     if (onboardState.phase === 'account') { renderOnboardAccountPhase(); return; }
     const overlay = document.getElementById('onboardOverlay');
-    const totalSteps = onboardState.hasPartners ? 4 : 4;
-    const dots = [1, 2, 3, 4].map(n => `<span class="onboard-dot ${n <= onboardState.step ? 'active' : ''}"></span>`).join('');
+    const totalSteps = 5;
+    const dots = [1, 2, 3, 4, 5].map(n => `<span class="onboard-dot ${n <= onboardState.step ? 'active' : ''}"></span>`).join('');
     let body = '';
 
     if (onboardState.step === 1) {
@@ -1150,33 +1191,24 @@ function renderOnboard() {
     } else if (onboardState.step === 2) {
         body = `
         <div class="input-group">
-            <label>استفاده شما از این برنامه به چه صورت است؟ *</label>
-            <div class="biz-type-grid" style="grid-template-columns:repeat(2,1fr);">
-                <div class="biz-type-card ${onboardState.appMode !== 'pro' ? 'active' : ''}" onclick="obSelectAppMode('simple')">
-                    <div class="biz-type-emoji">🏠</div><div class="biz-type-label">خانگی / مغازه کوچک (ساده)</div>
-                </div>
-                <div class="biz-type-card ${onboardState.appMode === 'pro' ? 'active' : ''}" onclick="obSelectAppMode('pro')">
-                    <div class="biz-type-emoji">🏢</div><div class="biz-type-label">حرفه‌ای (کسب‌وکار متوسط تا بزرگ)</div>
-                </div>
-            </div>
-            <p class="txt-caption" style="margin-top:6px;">در حالت ساده، بخش‌های پیشرفته (مثل شرکا و سهم سود) از منو مخفی می‌شوند تا محیط شلوغ نشود؛ همیشه از تنظیمات قابل تغییر است.</p>
-        </div>
-        <div class="input-group">
-            <label>شغل / صنف شما چیست؟ *</label>
+            <label>نوع استفاده از برنامه را انتخاب کنید *</label>
             <div class="biz-type-grid">
-                ${BUSINESS_TYPES.map(b => `
-                    <div class="biz-type-card ${onboardState.businessType === b.id ? 'active' : ''}" onclick="obSelectBiz('${b.id}')">
-                        <div class="biz-type-emoji">${b.emoji}</div>
-                        <div class="biz-type-label">${esc(b.label)}</div>
-                    </div>
-                `).join('')}
+                <div class="biz-type-card ${onboardState.appMode === 'simple' ? 'active' : ''}" onclick="obSelectAppMode('simple')"><div class="biz-type-emoji">🏠</div><div class="biz-type-label">خانگی / مغازه کوچک</div></div>
+                <div class="biz-type-card ${onboardState.appMode === 'pro' ? 'active' : ''}" onclick="obSelectAppMode('pro')"><div class="biz-type-emoji">🏢</div><div class="biz-type-label">حرفه‌ای</div></div>
+                <div class="biz-type-card ${onboardState.appMode === 'enterprise' ? 'active' : ''}" onclick="obSelectAppMode('enterprise')"><div class="biz-type-emoji">🏬</div><div class="biz-type-label">چندشعبه‌ای / سازمانی</div></div>
+                <div class="biz-type-card ${onboardState.appMode === 'online' ? 'active' : ''}" onclick="obSelectAppMode('online')"><div class="biz-type-emoji">🌐</div><div class="biz-type-label">فروش آنلاین</div></div>
             </div>
-        </div>
-        <div class="input-group">
-            <label>آدرس فروشگاه (برای سربرگ فاکتور)</label>
-            <textarea id="ob_address" placeholder="آدرس کامل...">${esc(onboardState.address)}</textarea>
         </div>`;
     } else if (onboardState.step === 3) {
+        body = `
+        <div class="input-group">
+            <label>نوع شغل / صنف شما چیست؟ *</label>
+            <div class="biz-type-grid">
+                ${BUSINESS_TYPES.map(b => `<div class="biz-type-card ${onboardState.businessType === b.id ? 'active' : ''}" onclick="obSelectBiz('${b.id}')"><div class="biz-type-emoji">${b.emoji}</div><div class="biz-type-label">${esc(b.label)}</div></div>`).join('')}
+            </div>
+        </div>
+        <div class="input-group"><label>آدرس فروشگاه (برای سربرگ فاکتور)</label><textarea id="ob_address" placeholder="آدرس کامل...">${esc(onboardState.address)}</textarea></div>`;
+    } else if (onboardState.step === 4) {
         body = `
         <div class="input-group">
             <label>این فروشگاه چگونه اداره می‌شود؟ *</label>
@@ -1228,9 +1260,7 @@ function renderOnboard() {
                 </div>
                 <label class="switch"><input type="checkbox" id="ob_loadDemo" ${onboardState.loadDemo ? 'checked' : ''}><span class="switch-slider"></span></label>
             </div>
-            <p class="txt-body" style="color:var(--accent-rose); font-weight:700; margin-top:8px; line-height:1.9;">
-                ⚠️ این گزینه فقط برای آزمایش و آشنایی با امکانات برنامه است — اطلاعاتی که وارد می‌کند واقعی نیست. بعد از این‌که با برنامه آشنا شدید، حتماً از «تنظیمات ← پاک کردن همه اطلاعات و شروع مجدد» استفاده کنید و از صفر و به‌صورت واقعی شروع به کار کنید. توصیه می‌شود این گزینه را <u>خاموش</u> نگه دارید مگر بخواهید همین الان محیط برنامه را امتحان کنید.
-            </p>
+            <p class="txt-caption" style="margin-top:8px;">با فعال‌کردن این گزینه، اطلاعات نمونه برای تست بخش‌های مختلف برنامه ساخته می‌شود.</p>
         </div>`;
     }
 
@@ -1243,7 +1273,7 @@ function renderOnboard() {
         <div id="onboardBody">${body}</div>
         <div class="onboard-nav">
             ${onboardState.step > 1 ? `<button class="btn-action" onclick="obPrev()">بازگشت</button>` : ''}
-            <button class="calc-btn" onclick="obNext()">${onboardState.step < 4 ? 'ادامه' : 'شروع کار با برنامه'}</button>
+            <button class="calc-btn" onclick="obNext()">${onboardState.step < 5 ? 'ادامه' : 'شروع کار با برنامه'}</button>
         </div>
     </div>`;
 }
@@ -1295,8 +1325,10 @@ function obCollectStep() {
         onboardState.ownerName = val('ob_ownerName').trim();
         onboardState.phone = val('ob_phone').trim();
     } else if (onboardState.step === 2) {
-        onboardState.address = val('ob_address').trim();
+        // appMode is selected directly on this step.
     } else if (onboardState.step === 3) {
+        onboardState.address = val('ob_address').trim();
+    } else if (onboardState.step === 4) {
         if (onboardState.hasPartners) obSyncPartnerDraft();
     } else {
         onboardState.currency = val('ob_currency') || onboardState.currency;
@@ -1360,7 +1392,17 @@ function finishOnboarding() {
             note: ''
         }));
         dbWrite(K.partners, partners);
+        const cashPartners = partners.filter(p => num(p.capitalToman) > 0);
+        if (cashPartners.length) {
+            const txs = dbRead(K.cashtx);
+            cashPartners.forEach(p => txs.push({ id: uid('tx'), date: p.joinDate, type: 'in', amount: p.capitalToman, desc: `سرمایه: ${p.name}`, partnerId: p.id, capitalContribution: true }));
+            dbWrite(K.cashtx, txs);
+        }
+    } else {
+        dbWrite(K.partners, []);
     }
+    // Every new store starts with one default warehouse; more can be added immediately.
+    if (!dbRead(K.warehouses).length) dbWrite(K.warehouses, [{ id: uid('wh'), name: 'انبار اصلی', address: '', isDefault: true }]);
     document.getElementById('onboardOverlay').hidden = true;
     refreshBrandChip();
     applyAppModeVisibility();
@@ -1833,7 +1875,7 @@ function renderProducts() {
     const term = productSearchTerm.trim();
     const totalValue = all.reduce((s, p) => s + num(p.qty) * num(p.buyPrice), 0);
     const header = viewHeader('انبار', 'کالا و انبار', `${all.length.toLocaleString(localeForDigits())} کالا · ارزش انبار: ${money(totalValue)}`,
-        `<button class="nav-btn" onclick="openListPrintOptions('products')" title="چاپ لیست انبار"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
+        `<button class="btn-action" onclick="switchView('warehouses')">🏬 مدیریت انبارها</button><button class="nav-btn" onclick="openListPrintOptions('products')" title="چاپ لیست انبار"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></button>`);
 
     const searchBar = `
     <div class="chip-row">
@@ -3935,38 +3977,76 @@ let fbAuth = null, fbDb = null, fbUser = null, _cloudSyncTimer = null;
 let _stlDirection = 'in';
 function initFirebase() {
     try {
-        if (typeof firebase === 'undefined') { setCloudStatus('signedout'); return; } // CDN blocked/offline — app still fully works locally
-        firebase.initializeApp(firebaseConfig);
+        if (typeof firebase === 'undefined') { setCloudStatus('signedout'); return; }
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
         fbAuth.onAuthStateChanged(onCloudAuthChange);
+        // Complete a redirect login if a popup was unavailable and the browser returned here.
+        fbAuth.getRedirectResult().catch(() => {});
         window.addEventListener('online', () => { if (fbUser) setCloudStatus('synced'); });
         window.addEventListener('offline', () => { if (fbUser) setCloudStatus('error'); });
     } catch (e) { setCloudStatus('signedout'); }
 }
-function onCloudAuthChange(user) {
+async function onCloudAuthChange(user) {
     const wasSignedOut = !fbUser;
     fbUser = user;
     refreshCloudStatusChip();
     if (currentView === 'settings' || currentView === 'backup') rerenderIfActive(currentView);
-    if (user && wasSignedOut) autoReconcileCloud();
+    if (!user || !wasSignedOut) return;
+
+    // During first-run, Google is used to restore an existing account. If the account has
+    // no cloud document yet, continue directly to store setup instead of uploading an empty DB.
+    const overlay = document.getElementById('onboardOverlay');
+    if (overlay && !overlay.hidden && onboardState.phase === 'account') {
+        setCloudStatus('syncing');
+        try {
+            const snap = await cloudDocRef().get();
+            if (snap.exists) {
+                const data = JSON.parse((snap.data() || {}).data || '{}');
+                applyImportedData(data);
+                localStorage.setItem('ap_local_last_modified', (snap.data() || {}).updatedAt || todayISO());
+                localStorage.setItem('ap_last_cloud_sync', todayISO());
+                overlay.hidden = true;
+                setCloudStatus('synced');
+                setTimeout(() => location.reload(), 300);
+            } else {
+                onboardState.phase = 'wizard';
+                onboardState.step = 1;
+                setCloudStatus('synced');
+                renderOnboard();
+                showToast('حساب گوگل متصل شد؛ اطلاعات فروشگاه جدید را وارد کنید', 'success');
+            }
+        } catch (e) {
+            setCloudStatus('error');
+            showToast('ورود انجام شد اما دریافت اطلاعات ابری ممکن نشد', 'error');
+        }
+        return;
+    }
+    if (getSettings().onboarded) autoReconcileCloud();
 }
 let _driveAccessToken = null;
 function signInWithGoogle() {
     if (!fbAuth) { showToast('اتصال به گوگل برقرار نشد؛ اتصال اینترنت را بررسی کنید', 'error'); return; }
     const provider = new firebase.auth.GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/drive.file'); // only for the optional "backup to Google Drive" button — لازم برای آپلود فایل پشتیبان
+    // Do not request Drive permission during normal sign-in. Drive permission is requested only
+    // when the user explicitly starts a Drive backup.
     setCloudStatus('syncing');
-    fbAuth.signInWithPopup(provider).then((result) => {
-        const cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
-        if (cred && cred.accessToken) _driveAccessToken = cred.accessToken;
-    }).catch((e) => { setCloudStatus('error'); showToast('ورود ناموفق بود: ' + (e.message || ''), 'error'); });
+    fbAuth.signInWithPopup(provider).then(() => {
+        setCloudStatus('syncing');
+    }).catch((e) => {
+        const fallbackCodes = ['auth/popup-blocked', 'auth/popup-closed-by-user', 'auth/cancelled-popup-request'];
+        if (fallbackCodes.includes(e && e.code)) {
+            try { fbAuth.signInWithRedirect(provider); return; } catch (_) {}
+        }
+        setCloudStatus('error');
+        showToast('ورود گوگل انجام نشد: ' + (e.message || 'خطای ناشناخته'), 'error');
+    });
 }
 window.signInWithGoogle = signInWithGoogle;
 async function ensureDriveAccessToken() {
     if (_driveAccessToken) return _driveAccessToken;
-    // The Drive-scoped access token only lives in memory for this tab session (Firebase doesn't
-    // persist raw Google OAuth tokens across reloads) — if we've lost it, silently re-prompt once.
+    if (!fbAuth || !fbUser) throw new Error('not-authenticated');
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/drive.file');
     const result = await fbAuth.signInWithPopup(provider);
@@ -3974,6 +4054,11 @@ async function ensureDriveAccessToken() {
     _driveAccessToken = cred && cred.accessToken;
     return _driveAccessToken;
 }
+function signOutCloud() {
+    if (fbAuth) fbAuth.signOut();
+    showToast('از حساب گوگل خارج شدید', 'success');
+}
+window.signOutCloud = signOutCloud;
 async function backupToGoogleDrive() {
     if (!fbUser) { showToast('ابتدا با گوگل وارد شوید', 'error'); return; }
     showToast('در حال آماده‌سازی و آپلود فایل...', 'success');
@@ -4000,11 +4085,6 @@ async function backupToGoogleDrive() {
     }
 }
 window.backupToGoogleDrive = backupToGoogleDrive;
-function signOutCloud() {
-    if (fbAuth) fbAuth.signOut();
-    showToast('از حساب گوگل خارج شدید (اطلاعات همین دستگاه دست‌نخورده باقی ماند)', 'success');
-}
-window.signOutCloud = signOutCloud;
 function collectFullExportData() {
     const data = {};
     Object.entries(K).forEach(([name, key]) => { data[name] = JSON.parse(localStorage.getItem(key) || 'null'); });
@@ -4151,7 +4231,7 @@ window.manualCloudSync = manualCloudSync;
    menu doesn't feel overwhelming. Switching modes only changes what's shown;
    no data is ever deleted.
    ------------------------------------------------------------------------- */
-const PRO_ONLY_VIEWS = ['partners', 'supplyChainHub', 'suppliers', 'supplierDetail', 'purchaseOrders', 'poDetail', 'rfqs', 'blanketOrders', 'reorderSuggestions', 'warehouses', 'warehouseStockReport', 'wastage', 'backorders', 'abcAnalysis', 'purchaseBudgets', 'supplierContracts', 'warrantyClaims', 'purchaseCalendar', 'notifications', 'inventoryTurnover', 'demandForecast', 'supplyChainKPI', 'batchTracking'];
+const PRO_ONLY_VIEWS = ['partners', 'supplyChainHub', 'suppliers', 'supplierDetail', 'purchaseOrders', 'poDetail', 'rfqs', 'blanketOrders', 'reorderSuggestions', 'wastage', 'backorders', 'abcAnalysis', 'purchaseBudgets', 'supplierContracts', 'warrantyClaims', 'purchaseCalendar', 'notifications', 'inventoryTurnover', 'demandForecast', 'supplyChainKPI', 'batchTracking'];
 function isProMode() { return (getSettings().appMode || 'pro') !== 'simple'; }
 function applyAppModeVisibility() {
     const pro = isProMode();
@@ -5986,7 +6066,7 @@ function renderSupplyChainHub() {
         <button class="btn-action" style="height:70px;" onclick="switchView('supplyChainKPI')">🎯<br>گزارش KPI کلی</button>
         <button class="btn-action" style="height:70px;" onclick="switchView('batchTracking')">📅<br>بچ و تاریخ انقضا</button>
     </div>
-    <p class="txt-caption" style="margin-top:14px;">تمام ۴۰ قابلیت این ماژول پیاده‌سازی شده‌اند، به‌جز دو مورد که واقعاً امکان‌پذیر نبودند: همگام‌سازی با فروشگاه آنلاین (چون فروشگاه آنلاینی به این برنامه متصل نیست) و پورتال زنده تأمین‌کننده (به‌جای آن، خلاصه وضعیت قابل اشتراک‌گذاری ساخته شده). ارسال اعلان پیامکی هم نیاز به یک حساب فعال در سرویس پیامکی شما دارد.</p>
+    <p class="txt-caption" style="margin-top:14px;"></p>
     `;
 }
 VIEW_RENDERERS.supplyChainHub = renderSupplyChainHub;
@@ -6689,7 +6769,6 @@ function renderNotifications() {
             <button class="btn-action" onclick="saveTelegramSettings()">ذخیره تنظیمات</button>
             <button class="calc-btn" onclick="sendNotificationsToTelegram()">📨 ارسال اعلان‌ها الان</button>
         </div>
-        <p class="txt-caption" style="margin-top:10px;">برای پیامک (SMS) نیاز به یک حساب فعال در یک سرویس ارسال پیامک (مثل کاوه‌نگار یا ملی‌پیامک) دارید؛ اگر می‌خواهید این قابلیت هم وصل شود، اطلاعات API همان سرویس (آدرس API و کلید) را در اختیارم بگذارید تا دقیقاً برایتان وصل کنم.</p>
     </div>
     `;
 }
@@ -6920,8 +6999,21 @@ function saveNewPartnerFromWizard() {
     const capitalToman = computeCapitalEntryTomanValue();
     if (!capitalToman) { showToast('مبلغ/ارزش سرمایه را کامل وارد کنید (برای ارز، نرخ روز هم لازم است)', 'error'); return; }
     const list = dbRead(K.partners);
-    list.push({ id: uid('ptn'), name, capitalToman, percentManual: null, joinDate: getJalaliInputISO('np_date') || todayISO(), note: document.getElementById('np_note').value.trim() });
+    const joinDate = getJalaliInputISO('np_date') || todayISO();
+    const capType = document.getElementById('cap_type').value;
+    const capitalEntry = { id: uid('ptn'), name, capitalToman, percentManual: null, joinDate, note: document.getElementById('np_note').value.trim(), capitalType: capType };
+    list.push(capitalEntry);
     dbWrite(K.partners, list);
+    // Cash contributions automatically enter the cash ledger. Non-cash contributions stay as assets.
+    if (capType === 'currency' && (document.getElementById('cap_currency') || {}).value === 'تومان') {
+        const txs = dbRead(K.cashtx);
+        txs.push({ id: uid('tx'), date: joinDate, type: 'in', amount: capitalToman, desc: `سرمایه شریک: ${name}`, partnerId: capitalEntry.id, capitalContribution: true });
+        dbWrite(K.cashtx, txs);
+    } else {
+        const assets = dbRead(K.otherAssets);
+        assets.push({ id: uid('asset'), date: joinDate, type: capType === 'gold' ? 'gold' : 'currency', amount: capType === 'currency' ? num(document.getElementById('cap_amount').value) : 0, currency: capType === 'currency' ? ((document.getElementById('cap_currency') || {}).value || '') : '', rate: capType === 'currency' ? num((document.getElementById('cap_rate') || {}).value) : 0, customValue: capitalToman, note: `سرمایه شریک: ${name}`, partnerId: capitalEntry.id, capitalContribution: true });
+        dbWrite(K.otherAssets, assets);
+    }
     autoBackupTick();
     closeModal();
     showToast('شریک جدید اضافه شد', 'success');
@@ -7259,14 +7351,12 @@ function renderSettings() {
 
     <div class="section-box">
         <div class="section-title">حالت نمایش برنامه</div>
-        <p class="txt-caption" style="margin-bottom:10px;">در حالت ساده، بخش‌های پیشرفته (شرکا و سهم سود، و در آینده ماژول زنجیره تأمین) از منو مخفی می‌شوند تا محیط شلوغ نشود. اطلاعات ثبت‌شده در هیچ حالتی حذف نمی‌شود.</p>
-        <div class="biz-type-grid" style="grid-template-columns:repeat(2,1fr);">
-            <div class="biz-type-card ${!isProMode() ? 'active' : ''}" onclick="setAppMode('simple')">
-                <div class="biz-type-emoji">🏠</div><div class="biz-type-label">ساده</div>
-            </div>
-            <div class="biz-type-card ${isProMode() ? 'active' : ''}" onclick="setAppMode('pro')">
-                <div class="biz-type-emoji">🏢</div><div class="biz-type-label">حرفه‌ای</div>
-            </div>
+        <p class="txt-caption" style="margin-bottom:10px;">حالت برنامه مشخص می‌کند چه بخش‌هایی در منوی اصلی نمایش داده شوند. تغییر حالت اطلاعات قبلی را حذف نمی‌کند.</p>
+        <div class="biz-type-grid">
+            <div class="biz-type-card ${getSettings().appMode === 'simple' ? 'active' : ''}" onclick="setAppMode('simple')"><div class="biz-type-emoji">🏠</div><div class="biz-type-label">خانگی / کوچک</div></div>
+            <div class="biz-type-card ${getSettings().appMode === 'pro' ? 'active' : ''}" onclick="setAppMode('pro')"><div class="biz-type-emoji">🏢</div><div class="biz-type-label">حرفه‌ای</div></div>
+            <div class="biz-type-card ${getSettings().appMode === 'enterprise' ? 'active' : ''}" onclick="setAppMode('enterprise')"><div class="biz-type-emoji">🏬</div><div class="biz-type-label">چندشعبه‌ای / سازمانی</div></div>
+            <div class="biz-type-card ${getSettings().appMode === 'online' ? 'active' : ''}" onclick="setAppMode('online')"><div class="biz-type-emoji">🌐</div><div class="biz-type-label">فروش آنلاین</div></div>
         </div>
     </div>
 
@@ -7492,7 +7582,7 @@ function renderBackup() {
     const s = getSettings();
     const retentionDays = num(s.backupRetentionDays) || 365;
     return `
-    ${viewHeader('سیستم', 'پشتیبان‌گیری و بازیابی', 'اطلاعات شما فقط روی همین مرورگر ذخیره می‌شود — برای انتقال به دستگاه دیگر یا نگهداری امن، فایل پشتیبان بگیرید.')}
+    ${viewHeader('سیستم', 'پشتیبان‌گیری و بازیابی', 'اطلاعات برنامه روی دستگاه ذخیره می‌شود و در صورت ورود به حساب گوگل، همگام‌سازی ابری نیز انجام می‌شود.')}
 
     <div class="section-box">
         <div class="section-title">پشتیبان‌گیری خودکار</div>
@@ -7518,7 +7608,7 @@ function renderBackup() {
     <div class="section-box">
         <div class="section-title">☁️ پشتیبان‌گیری روی گوگل‌درایو</div>
         ${fbUser ? `
-            <p class="txt-body" style="color:var(--text-secondary); margin-bottom:10px;">یک فایل پشتیبان JSON مستقیماً در حساب گوگل‌درایو شما (${esc(fbUser.email)}) آپلود می‌شود — جدا و اضافه بر همگام‌سازی خودکار اطلاعات که از قبل فعال است.</p>
+            <p class="txt-body" style="color:var(--text-secondary); margin-bottom:10px;">یک فایل پشتیبان JSON در حساب گوگل‌درایو شما (${esc(fbUser.email)}) ذخیره می‌شود.</p>
             <button class="btn-action" style="width:100%;" onclick="backupToGoogleDrive()">⬆ آپلود نسخه پشتیبان به گوگل‌درایو</button>
         ` : `<p class="txt-caption">برای استفاده از این گزینه، ابتدا از بالای صفحه یا تنظیمات، با حساب گوگل وارد شوید.</p>`}
     </div>
@@ -7696,14 +7786,17 @@ const HELP_SECTIONS = [
     ['صندوق و بانک', `تمام واریزها (از فاکتورهای فروش) و برداشت‌ها (خرید و هزینه‌ها) به‌صورت خودکار در این بخش نمایش داده می‌شوند. برای ثبت واریز/برداشت دستی (مثلاً سرمایه اولیه) از دکمه + استفاده کنید.`],
     ['چک‌ها', `چک‌های دریافتی و پرداختی را با تاریخ سررسید ثبت کنید؛ اگر سررسید چکی نزدیک باشد (۵ روز یا کمتر)، یادآوری در بالای صفحه نمایش داده می‌شود.`],
     ['انبارگردانی', `از مسیر «کالا و انبار ← بیشتر ← انبارگردانی» می‌توانید موجودی واقعی شمارش‌شده هر کالا را وارد کنید تا موجودی سیستم با آن اصلاح شود.`],
+    ['چند انبار', `در «کالا و انبار» گزینه «مدیریت انبارها» را باز کنید. می‌توانید چند انبار یا شعبه بسازید، موجودی را به تفکیک انبار مشاهده کنید و بین انبارها انتقال ثبت کنید. «انبار اصلی» هنگام ساخت فروشگاه به‌صورت خودکار ایجاد می‌شود.`],
+    ['شرکا و سرمایه', `در بخش «شرکا و سهم سود» سرمایه هر شریک ثبت می‌شود. سرمایه نقدیِ ثبت‌شده به‌صورت خودکار به گردش صندوق اضافه می‌شود؛ سرمایه غیرنقدی در دارایی‌ها ثبت می‌شود. بنابراین برای سرمایه نقدی نیازی به ورود دوباره آن به صندوق نیست.`],
+    ['زنجیره تأمین', `اطلاعات تأمین‌کنندگان، سفارش‌های خرید، پیشنهاد سفارش مجدد، قراردادها، گارانتی، موجودی انبارها و گزارش‌های زنجیره تأمین از این بخش مدیریت می‌شوند.`],
     ['بدهکاران و طلبکاران', `خلاصه‌ای از مشتریانی که به شما بدهکارند و تأمین‌کنندگانی که به آن‌ها بدهکارید، همراه با امکان چاپ.`],
     ['گزارش‌ها', `روند فروش ۶ ماه اخیر، پرفروش‌ترین کالاها، مشتریان برتر و سود خالص تخمینی. خروجی CSV و چاپ در دسترس است.`],
     ['چاپ و ظاهر برنامه', `از «تنظیمات ← چاپ و فاکتور» می‌توانید قالب چاپ (۹ طرح مختلف)، اندازه کاغذ (A4 / A5 / رول حرارتی ۸۰ و ۵۸ میلی‌متر)، جهت کاغذ و لوگوی فروشگاه را تنظیم کنید. از «تنظیمات ← ظاهر برنامه» فونت، اندازه فونت، تراکم چیدمان، حالت ارقام فارسی/انگلیسی، کنتراست بالا و فعال/غیرفعال بودن انیمیشن‌ها قابل تغییر است.`],
     ['پشتیبان‌گیری', `برنامه بعد از هر تغییر، خودکار یک نسخه پشتیبان در حافظه مرورگر نگه می‌دارد و هر روز یک نسخه پایان‌روز جداگانه می‌سازد (تا ۱۴ روز). برای اطمینان کامل، از «پشتیبان‌گیری ← دانلود فایل پشتیبان» به‌صورت دوره‌ای فایل JSON دانلود کنید یا (در Chrome/Edge) یک پوشه روی سیستم خود متصل کنید تا فایل به‌طور خودکار در همان پوشه به‌روزرسانی شود.`],
-    ['نکته مهم درباره ذخیره‌سازی', `این نرم‌افزار کاملاً محلی (client-side) است و اطلاعات فقط در همان مرورگر/دستگاه شما ذخیره می‌شود؛ هیچ سروری اطلاعات شما را دریافت نمی‌کند. برای همگام‌سازی بین چند دستگاه یا دسترسی چندکاربره آنلاین، نیاز به افزودن یک سرویس بک‌اند (مانند Firebase) دارد که در نسخه فعلی پیاده‌سازی نشده است.`]
+    ['ذخیره‌سازی و همگام‌سازی', `اطلاعات در دستگاه شما ذخیره می‌شود و پس از ورود با گوگل، نسخه ابری حساب نیز با تغییرات جدید همگام می‌شود. از بخش «پشتیبان‌گیری» می‌توانید فایل JSON نیز دریافت کنید.`]
 ];
 
-const APP_BUILD_LABEL = 'نسخه ۱۵ — بروزرسانی ۲۰ شهریور ۱۴۰۵ (تست خودکار کل برنامه + رفع باگ راهنمای اولیه)';
+const APP_BUILD_LABEL = 'نسخه ۱۸ — مدیریت چند انبار، شرکا، داده نمونه و ورود گوگل';
 function renderHelp() {
     return `
     ${viewHeader('سیستم', 'راهنمای کامل برنامه', 'آموزش گام‌به‌گام استفاده از حسابداری پلاس برای کاربران تازه‌کار')}
